@@ -204,9 +204,9 @@ docker compose down
 - Docker/Web default SAM backend: `roboflow`
 - Default SAM prompt: `icon,person,robot,animal`
 - Current default models:
-  - `openrouter`: image `google/gemini-3-pro-image-preview`, svg `google/gemini-3.1-pro-preview`
-  - `bianxie`: image `gemini-3-pro-image-preview`, svg `gemini-3.1-pro-preview`
-  - `gemini`: image `gemini-3-pro-image-preview`, svg `gemini-3.1-pro`
+  - `openrouter`: image `google/gemini-3.1-flash-image-preview`, svg `google/gemini-3.1-pro-preview`
+  - `bianxie`: image `gemini-3.1-flash-image-preview`, svg `gemini-3.1-pro-preview`
+  - `gemini`: image `gemini-3.1-flash-image-preview`, svg `gemini-3.1-pro`
 
 #### 6) Common Docker networking issues
 
