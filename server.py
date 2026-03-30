@@ -91,6 +91,7 @@ class RunRequest(BaseModel):
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     image_model: Optional[str] = None
+    image_size: Optional[str] = None
     svg_model: Optional[str] = None
     sam_prompt: Optional[str] = None
     sam_backend: Optional[str] = None
@@ -141,6 +142,8 @@ def run_job(req: RunRequest) -> JSONResponse:
         cmd += ["--base_url", req.base_url]
     if req.image_model:
         cmd += ["--image_model", req.image_model]
+    if req.image_size:
+        cmd += ["--image_size", req.image_size]
     if req.svg_model:
         cmd += ["--svg_model", req.svg_model]
 

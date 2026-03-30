@@ -258,6 +258,7 @@ AutoFigure-edit provides a visual web interface designed for seamless generation
 On the start page, paste your paper's method text on the left. On the right, configure your generation settings:
 *   **Provider:** Select your LLM provider (OpenRouter, Bianxie, or Gemini).
 *   **Optimize:** Set SVG template refinement iterations (recommend `0` for standard use).
+*   **Image Size:** Available only in **Gemini** mode. Choose `1K`, `2K`, or `4K` for image generation.
 *   **Reference Image:** Upload a target image to enable style transfer.
 *   **SAM3 Backend:** Choose local SAM3 or the fal.ai API (API key optional).
 
@@ -328,6 +329,7 @@ Common CLI flags:
 
 - `--provider` (openrouter | bianxie | gemini)
 - `--image_model`, `--svg_model`
+- `--image_size` (1K | 2K | 4K, Gemini only)
 - `--sam_prompt` (comma-separated prompts)
 - `--sam_backend` (local | fal | roboflow | api)
 - `--sam_api_key` (API key override; falls back to `FAL_KEY` or `ROBOFLOW_API_KEY`)
@@ -335,6 +337,17 @@ Common CLI flags:
 - `--merge_threshold` (0 disables merging)
 - `--optimize_iterations` (0 disables optimization)
 - `--reference_image_path` (optional)
+
+### Custom Provider / Custom Base URL
+
+If you want to use a self-hosted or third-party OpenAI-compatible endpoint, use:
+
+- `--provider openrouter`
+- `--base_url <your_endpoint>`
+- `--image_model <image_model_id>`
+- `--svg_model <svg_model_id>`
+
+This is the same pattern used for custom compatible providers: the system sends standard OpenAI-style requests to your `base_url`. Make sure the endpoint supports both image generation and multimodal SVG reconstruction before running a full job.
 
 ---
 

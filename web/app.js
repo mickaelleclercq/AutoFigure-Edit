@@ -19,6 +19,8 @@
     const referenceFile = $("referenceFile");
     const referencePreview = $("referencePreview");
     const referenceStatus = $("referenceStatus");
+    const imageSizeGroup = $("imageSizeGroup");
+    const imageSizeInput = $("imageSize");
     const samBackend = $("samBackend");
     const samPrompt = $("samPrompt");
     const samApiKeyGroup = $("samApiKeyGroup");
@@ -44,6 +46,7 @@
         provider: $("provider")?.value ?? "gemini",
         apiKey: $("apiKey")?.value ?? "",
         optimizeIterations: $("optimizeIterations")?.value ?? "0",
+        imageSize: imageSizeInput?.value ?? "4K",
         samBackend: samBackend?.value ?? "roboflow",
         samPrompt: samPrompt?.value ?? "icon,person,robot,animal",
         samApiKey: samApiKeyInput?.value ?? "",
@@ -75,6 +78,9 @@
       if (typeof state.optimizeIterations === "string" && $("optimizeIterations")) {
         $("optimizeIterations").value = state.optimizeIterations;
       }
+      if (typeof state.imageSize === "string" && imageSizeInput) {
+        imageSizeInput.value = state.imageSize;
+      }
       if (typeof state.samBackend === "string" && samBackend) {
         samBackend.value = state.samBackend;
       }
@@ -104,6 +110,15 @@
       }
     }
 
+    function syncImageSizeVisibility() {
+      const provider = $("provider")?.value ?? "gemini";
+      const show = provider === "gemini";
+      if (imageSizeGroup) {
+        imageSizeGroup.hidden = !show;
+      }
+      saveInputState();
+    }
+
     function syncSamApiKeyVisibility() {
       const shouldShow =
         samBackend &&
@@ -122,6 +137,10 @@
     if (samBackend) {
       samBackend.addEventListener("change", syncSamApiKeyVisibility);
       syncSamApiKeyVisibility();
+    }
+    if ($("provider")) {
+      $("provider").addEventListener("change", syncImageSizeVisibility);
+      syncImageSizeVisibility();
     }
 
     if (uploadZone && referenceFile) {
@@ -162,6 +181,7 @@
       $("provider"),
       $("apiKey"),
       $("optimizeIterations"),
+      $("imageSize"),
       samPrompt,
       samApiKeyInput,
     ];
@@ -194,6 +214,9 @@
         sam_prompt: $("samPrompt").value.trim() || null,
         sam_api_key: $("samApiKey").value.trim() || null,
       };
+      if ($("provider").value === "gemini") {
+        payload.image_size = imageSizeInput?.value || "4K";
+      }
       if (payload.sam_backend === "local") {
         payload.sam_api_key = null;
       }

@@ -109,6 +109,8 @@ PROVIDER_CONFIGS = {
 ProviderType = Literal["openrouter", "bianxie", "gemini"]
 PlaceholderMode = Literal["none", "box", "label"]
 GEMINI_DEFAULT_IMAGE_SIZE = "4K"
+IMAGE_SIZE_CHOICES = ("1K", "2K", "4K")
+BOXLIB_NO_ICON_MODE_KEY = "no_icon_mode"
 
 # SAM3 API config
 SAM3_FAL_API_URL = "https://fal.run/fal-ai/sam-3/image"
@@ -197,6 +199,7 @@ def call_llm_image_generation(
     base_url: str,
     provider: ProviderType,
     reference_image: Optional[Image.Image] = None,
+    image_size: str = GEMINI_DEFAULT_IMAGE_SIZE,
 ) -> Optional[Image.Image]:
     """
     统一的图像生成 LLM 调用接口
@@ -219,7 +222,7 @@ def call_llm_image_generation(
             api_key=api_key,
             model=model,
             reference_image=reference_image,
-            image_size=GEMINI_DEFAULT_IMAGE_SIZE,
+            image_size=image_size,
         )
     return _call_openrouter_image_generation(prompt, api_key, model, base_url, reference_image)
 
@@ -951,6 +954,7 @@ def generate_figure_from_method(
     provider: ProviderType,
     use_reference_image: Optional[bool] = None,
     reference_image_path: Optional[str] = None,
+    image_size: str = GEMINI_DEFAULT_IMAGE_SIZE,
 ) -> str:
     """
     使用 LLM 生成学术风格图片
@@ -973,6 +977,8 @@ def generate_figure_from_method(
     print("=" * 60)
     print(f"Provider: {provider}")
     print(f"模型: {model}")
+    if provider == "gemini":
+        print(f"分辨率: {image_size}")
 
     if use_reference_image is None:
         use_reference_image = USE_REFERENCE_IMAGE
@@ -1028,6 +1034,7 @@ The figure should be engaging and using academic journal style with cute charact
         base_url=base_url,
         provider=provider,
         reference_image=reference_image,
+        image_size=image_size,
     )
 
     if img is None:
@@ -1773,7 +1780,8 @@ def segment_with_sam3(
     boxlib_data = {
         "image_size": {"width": original_size[0], "height": original_size[1]},
         "prompts_used": prompt_list,
-        "boxes": valid_boxes
+        "boxes": valid_boxes,
+        BOXLIB_NO_ICON_MODE_KEY: len(valid_boxes) == 0,
     }
 
     boxlib_path = output_dir / "boxlib.json"
@@ -1981,6 +1989,7 @@ def generate_svg_template(
     base_url: str,
     provider: ProviderType,
     placeholder_mode: PlaceholderMode = "label",
+    no_icon_mode: bool = False,
 ) -> str:
     """
     使用多模态 LLM 生成 SVG 代码
@@ -1997,6 +2006,8 @@ def generate_svg_template(
     print(f"Provider: {provider}")
     print(f"模型: {model}")
     print(f"占位符模式: {placeholder_mode}")
+    if no_icon_mode:
+        print("无图标模式: 启用纯 SVG 复现回退")
 
     figure_img = Image.open(figure_path)
     samed_img = Image.open(samed_path)
@@ -2004,8 +2015,31 @@ def generate_svg_template(
     figure_width, figure_height = figure_img.size
     print(f"原图尺寸: {figure_width} x {figure_height}")
 
-    # 基础 prompt
-    base_prompt = f"""编写svg代码来实现像素级别的复现这张图片（除了图标用相同大小的矩形占位符填充之外其他文字和组件(尤其是箭头样式)都要保持一致（即灰色矩形覆盖的内容就是图标））
+    if no_icon_mode:
+        prompt_text = f"""编写 SVG 代码来尽可能像素级复现这张图片。
+
+当前 SAM3 没有检测到任何有效图标，因此这是一个无图标回退模式任务：
+- 不要添加任何灰色矩形占位符
+- 不要添加任何 <AF>01 / <AF>02 标签
+- 不要凭空生成图标框、占位组或额外装饰
+- 所有可见内容都应直接用 SVG 元素复现
+- 优先保持整体布局、文字、箭头、线条、边框和配色与原图一致
+
+CRITICAL DIMENSION REQUIREMENT:
+- The original image has dimensions: {figure_width} x {figure_height} pixels
+- Your SVG MUST use these EXACT dimensions:
+  - Set viewBox="0 0 {figure_width} {figure_height}"
+  - Set width="{figure_width}" height="{figure_height}"
+- DO NOT scale or resize the SVG
+
+Image reference notes:
+- Image 1 is the original target figure.
+- Image 2 is the SAM reference image. It does not contain any valid icon placeholder boxes for this run.
+
+Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
+    else:
+        # 基础 prompt
+        base_prompt = f"""编写svg代码来实现像素级别的复现这张图片（除了图标用相同大小的矩形占位符填充之外其他文字和组件(尤其是箭头样式)都要保持一致（即灰色矩形覆盖的内容就是图标））
 
 CRITICAL DIMENSION REQUIREMENT:
 - The original image has dimensions: {figure_width} x {figure_height} pixels
@@ -2015,7 +2049,7 @@ CRITICAL DIMENSION REQUIREMENT:
 - DO NOT scale or resize the SVG
 """
 
-    if placeholder_mode == "box":
+    if not no_icon_mode and placeholder_mode == "box":
         # box 模式：传入 boxlib 坐标
         with open(boxlib_path, 'r', encoding='utf-8') as f:
             boxlib_content = f.read()
@@ -2028,7 +2062,7 @@ Use these coordinates to accurately position your icon placeholders in the SVG.
 
 Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
 
-    elif placeholder_mode == "label":
+    elif not no_icon_mode and placeholder_mode == "label":
         # label 模式：要求占位符样式与 samed.png 一致
         prompt_text = base_prompt + """
 PLACEHOLDER STYLE REQUIREMENT:
@@ -2047,7 +2081,7 @@ Example placeholder structure:
 
 Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
 
-    else:  # none 模式
+    elif not no_icon_mode:  # none 模式
         prompt_text = base_prompt + """
 Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
 
@@ -2593,6 +2627,7 @@ def optimize_svg_with_llm(
     provider: ProviderType,
     max_iterations: int = 2,
     skip_base64_validation: bool = False,
+    no_icon_mode: bool = False,
 ) -> str:
     """
     使用 LLM 优化 SVG，使其与原图更加对齐
@@ -2618,6 +2653,8 @@ def optimize_svg_with_llm(
     print(f"Provider: {provider}")
     print(f"模型: {model}")
     print(f"最大迭代次数: {max_iterations}")
+    if no_icon_mode:
+        print("无图标模式: 优化时禁止引入占位框")
 
     # 如果迭代次数为 0，直接复制文件并跳过优化
     if max_iterations == 0:
@@ -2660,7 +2697,35 @@ def optimize_svg_with_llm(
         samed_img = Image.open(samed_path)
         current_png_img = Image.open(str(current_png_path))
 
-        prompt = f"""You are an expert SVG optimizer. Compare the current SVG rendering with the original figure and optimize the SVG code to better match the original.
+        if no_icon_mode:
+            prompt = f"""You are an expert SVG optimizer. Compare the current SVG rendering with the original figure and optimize the SVG code to better match the original.
+
+I'm providing you with 4 inputs:
+1. **Image 1 (figure.png)**: The original target figure that we want to replicate
+2. **Image 2 (samed.png)**: The SAM reference image for this run. No valid icon boxes were detected.
+3. **Image 3 (current SVG rendered as PNG)**: The current state of our SVG
+4. **Current SVG code**: The SVG code that needs optimization
+
+Please carefully compare and optimize:
+1. Overall layout and spatial alignment
+2. Text positions, font sizes, and colors
+3. Arrows, connectors, borders, and strokes
+4. Shapes, grouping, and visual hierarchy
+
+**CURRENT SVG CODE:**
+```xml
+{current_svg}
+```
+
+**IMPORTANT:**
+- Output ONLY the optimized SVG code
+- Start with <svg and end with </svg>
+- Do NOT include markdown formatting or explanations
+- No valid icon placeholders exist for this figure
+- Do NOT add gray rectangles, AF labels, placeholder groups, or synthetic icon boxes
+- Focus on position and style corrections"""
+        else:
+            prompt = f"""You are an expert SVG optimizer. Compare the current SVG rendering with the original figure and optimize the SVG code to better match the original.
 
 I'm providing you with 4 inputs:
 1. **Image 1 (figure.png)**: The original target figure that we want to replicate
@@ -2788,6 +2853,7 @@ def method_to_svg(
     placeholder_mode: PlaceholderMode = "label",
     optimize_iterations: int = 2,
     merge_threshold: float = 0.9,
+    image_size: str = GEMINI_DEFAULT_IMAGE_SIZE,
 ) -> dict:
     """
     完整流程：Paper Method → SVG with Icons
@@ -2849,11 +2915,9 @@ def method_to_svg(
     print(f"占位符模式: {placeholder_mode}")
     print(f"优化迭代次数: {optimize_iterations}")
     print(f"Box合并阈值: {merge_threshold}")
+    if provider == "gemini":
+        print(f"生图分辨率: {image_size}")
     print("=" * 60)
-
-    # 预检步骤三的 RMBG-2.0 可访问性，避免步骤一/二成功后才在 gated 模型处失败
-    if stop_after >= 3:
-        _ensure_rmbg2_access_ready(rmbg_model_path)
 
     # 步骤一：生成图片
     figure_path = output_dir / "figure.png"
@@ -2864,6 +2928,7 @@ def method_to_svg(
         model=image_gen_model,
         base_url=base_url,
         provider=provider,
+        image_size=image_size,
     )
 
     if stop_after == 1:
@@ -2892,18 +2957,11 @@ def method_to_svg(
         sam_max_masks=sam_max_masks,
     )
 
-    if len(valid_boxes) == 0:
-        print("\n警告: 没有检测到有效的图标，流程终止")
-        return {
-            "figure_path": str(figure_path),
-            "samed_path": samed_path,
-            "boxlib_path": boxlib_path,
-            "icon_infos": [],
-            "template_svg_path": None,
-            "final_svg_path": None,
-        }
-
-    print(f"\n检测到 {len(valid_boxes)} 个图标")
+    no_icon_mode = len(valid_boxes) == 0
+    if no_icon_mode:
+        print("\n警告: 没有检测到有效的图标，切换到纯 SVG 回退模式")
+    else:
+        print(f"\n检测到 {len(valid_boxes)} 个图标")
 
     if stop_after == 2:
         print("\n" + "=" * 60)
@@ -2920,12 +2978,17 @@ def method_to_svg(
         }
 
     # 步骤三：裁切 + 去背景
-    icon_infos = crop_and_remove_background(
-        image_path=str(figure_path),
-        boxlib_path=boxlib_path,
-        output_dir=str(output_dir),
-        rmbg_model_path=rmbg_model_path,
-    )
+    icon_infos = []
+    if no_icon_mode:
+        print("步骤三跳过：当前为无图标回退模式")
+    else:
+        _ensure_rmbg2_access_ready(rmbg_model_path)
+        icon_infos = crop_and_remove_background(
+            image_path=str(figure_path),
+            boxlib_path=boxlib_path,
+            output_dir=str(output_dir),
+            rmbg_model_path=rmbg_model_path,
+        )
 
     if stop_after == 3:
         print("\n" + "=" * 60)
@@ -2943,32 +3006,44 @@ def method_to_svg(
 
     # 步骤四：生成 SVG 模板
     template_svg_path = output_dir / "template.svg"
-    generate_svg_template(
-        figure_path=str(figure_path),
-        samed_path=samed_path,
-        boxlib_path=boxlib_path,
-        output_path=str(template_svg_path),
-        api_key=api_key,
-        model=svg_gen_model,
-        base_url=base_url,
-        provider=provider,
-        placeholder_mode=placeholder_mode,
-    )
-
-    # 步骤 4.6：LLM 优化 SVG 模板（可配置迭代次数，0 表示跳过）
     optimized_template_path = output_dir / "optimized_template.svg"
-    optimize_svg_with_llm(
-        figure_path=str(figure_path),
-        samed_path=samed_path,
-        final_svg_path=str(template_svg_path),
-        output_path=str(optimized_template_path),
-        api_key=api_key,
-        model=svg_gen_model,
-        base_url=base_url,
-        provider=provider,
-        max_iterations=optimize_iterations,
-        skip_base64_validation=True,
-    )
+    final_svg_path = output_dir / "final.svg"
+    try:
+        generate_svg_template(
+            figure_path=str(figure_path),
+            samed_path=samed_path,
+            boxlib_path=boxlib_path,
+            output_path=str(template_svg_path),
+            api_key=api_key,
+            model=svg_gen_model,
+            base_url=base_url,
+            provider=provider,
+            placeholder_mode=placeholder_mode,
+            no_icon_mode=no_icon_mode,
+        )
+
+        # 步骤 4.6：LLM 优化 SVG 模板（可配置迭代次数，0 表示跳过）
+        optimize_svg_with_llm(
+            figure_path=str(figure_path),
+            samed_path=samed_path,
+            final_svg_path=str(template_svg_path),
+            output_path=str(optimized_template_path),
+            api_key=api_key,
+            model=svg_gen_model,
+            base_url=base_url,
+            provider=provider,
+            max_iterations=optimize_iterations,
+            skip_base64_validation=True,
+            no_icon_mode=no_icon_mode,
+        )
+    except Exception as exc:
+        if not no_icon_mode:
+            raise
+        print(f"无图标模式下 SVG 重建失败（{exc}），改用内嵌原图的保底 SVG")
+        create_embedded_figure_svg(
+            figure_path=str(figure_path),
+            output_path=str(final_svg_path),
+        )
 
     if stop_after == 4:
         print("\n" + "=" * 60)
@@ -2979,50 +3054,62 @@ def method_to_svg(
             "samed_path": samed_path,
             "boxlib_path": boxlib_path,
             "icon_infos": icon_infos,
-            "template_svg_path": str(template_svg_path),
-            "optimized_template_path": str(optimized_template_path),
+            "template_svg_path": str(template_svg_path) if template_svg_path.is_file() else None,
+            "optimized_template_path": str(optimized_template_path) if optimized_template_path.is_file() else None,
             "final_svg_path": None,
         }
 
-    # 步骤 4.7：坐标系对齐
-    print("\n" + "-" * 50)
-    print("步骤 4.7：坐标系对齐")
-    print("-" * 50)
-
-    figure_img = Image.open(figure_path)
-    figure_width, figure_height = figure_img.size
-    print(f"原图尺寸: {figure_width} x {figure_height}")
-
-    with open(optimized_template_path, 'r', encoding='utf-8') as f:
-        svg_code = f.read()
-
-    svg_width, svg_height = get_svg_dimensions(svg_code)
-
-    if svg_width and svg_height:
-        print(f"SVG 尺寸: {svg_width} x {svg_height}")
-
-        if abs(svg_width - figure_width) < 1 and abs(svg_height - figure_height) < 1:
-            print("尺寸匹配，使用 1:1 坐标映射")
-            scale_factors = (1.0, 1.0)
-        else:
-            scale_x, scale_y = calculate_scale_factors(
-                figure_width, figure_height, svg_width, svg_height
-            )
-            scale_factors = (scale_x, scale_y)
-            print(f"尺寸不匹配，计算缩放因子: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
-    else:
-        print("警告: 无法提取 SVG 尺寸，使用 1:1 坐标映射")
-        scale_factors = (1.0, 1.0)
+    svg_template_for_replace = optimized_template_path if optimized_template_path.is_file() else template_svg_path
 
     # 步骤五：图标替换
-    final_svg_path = output_dir / "final.svg"
-    replace_icons_in_svg(
-        template_svg_path=str(optimized_template_path),
-        icon_infos=icon_infos,
-        output_path=str(final_svg_path),
-        scale_factors=scale_factors,
-        match_by_label=(placeholder_mode == "label"),
-    )
+    if no_icon_mode:
+        if svg_template_for_replace.is_file():
+            shutil.copyfile(svg_template_for_replace, final_svg_path)
+            print("无图标模式：跳过图标替换，直接输出 SVG")
+        else:
+            print("无图标模式缺少模板 SVG，生成保底 final.svg")
+            create_embedded_figure_svg(
+                figure_path=str(figure_path),
+                output_path=str(final_svg_path),
+            )
+    else:
+        # 步骤 4.7：坐标系对齐
+        print("\n" + "-" * 50)
+        print("步骤 4.7：坐标系对齐")
+        print("-" * 50)
+
+        figure_img = Image.open(figure_path)
+        figure_width, figure_height = figure_img.size
+        print(f"原图尺寸: {figure_width} x {figure_height}")
+
+        with open(svg_template_for_replace, 'r', encoding='utf-8') as f:
+            svg_code = f.read()
+
+        svg_width, svg_height = get_svg_dimensions(svg_code)
+
+        if svg_width and svg_height:
+            print(f"SVG 尺寸: {svg_width} x {svg_height}")
+
+            if abs(svg_width - figure_width) < 1 and abs(svg_height - figure_height) < 1:
+                print("尺寸匹配，使用 1:1 坐标映射")
+                scale_factors = (1.0, 1.0)
+            else:
+                scale_x, scale_y = calculate_scale_factors(
+                    figure_width, figure_height, svg_width, svg_height
+                )
+                scale_factors = (scale_x, scale_y)
+                print(f"尺寸不匹配，计算缩放因子: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+        else:
+            print("警告: 无法提取 SVG 尺寸，使用 1:1 坐标映射")
+            scale_factors = (1.0, 1.0)
+
+        replace_icons_in_svg(
+            template_svg_path=str(svg_template_for_replace),
+            icon_infos=icon_infos,
+            output_path=str(final_svg_path),
+            scale_factors=scale_factors,
+            match_by_label=(placeholder_mode == "label"),
+        )
 
     print("\n" + "=" * 60)
     print("流程完成！")
@@ -3040,10 +3127,37 @@ def method_to_svg(
         "samed_path": samed_path,
         "boxlib_path": boxlib_path,
         "icon_infos": icon_infos,
-        "template_svg_path": str(template_svg_path),
-        "optimized_template_path": str(optimized_template_path),
+        "template_svg_path": str(template_svg_path) if template_svg_path.is_file() else None,
+        "optimized_template_path": str(optimized_template_path) if optimized_template_path.is_file() else None,
         "final_svg_path": str(final_svg_path),
     }
+
+
+def create_embedded_figure_svg(
+    figure_path: str,
+    output_path: str,
+) -> str:
+    """Wrap the generated raster figure in a minimal SVG as a final fallback."""
+    figure_img = Image.open(figure_path)
+    width, height = figure_img.size
+    buf = io.BytesIO()
+    figure_img.save(buf, format="PNG")
+    figure_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    svg_code = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
+        f'  <image x="0" y="0" width="{width}" height="{height}" '
+        f'href="data:image/png;base64,{figure_b64}" preserveAspectRatio="none"/>\n'
+        f"</svg>\n"
+    )
+
+    output_path_obj = Path(output_path)
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path_obj, 'w', encoding='utf-8') as f:
+        f.write(svg_code)
+
+    print(f"内嵌 figure.png 的保底 SVG 已保存: {output_path_obj}")
+    return str(output_path_obj)
 
 
 # ============================================================================
@@ -3077,6 +3191,12 @@ if __name__ == "__main__":
 
     # 模型参数
     parser.add_argument("--image_model", default=None, help="生图模型（默认根据 provider 自动设置）")
+    parser.add_argument(
+        "--image_size",
+        choices=list(IMAGE_SIZE_CHOICES),
+        default=GEMINI_DEFAULT_IMAGE_SIZE,
+        help="生图分辨率（可选: 1K/2K/4K，默认: 4K）",
+    )
     parser.add_argument("--svg_model", default=None, help="SVG生成模型（默认根据 provider 自动设置）")
 
     # Step 1 参考图片参数
@@ -3166,6 +3286,7 @@ if __name__ == "__main__":
         base_url=args.base_url,
         provider=args.provider,
         image_gen_model=args.image_model,
+        image_size=args.image_size,
         svg_gen_model=args.svg_model,
         sam_prompts=args.sam_prompt,
         min_score=args.min_score,
