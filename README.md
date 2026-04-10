@@ -228,7 +228,16 @@ docker compose down
 ### Option 1: CLI
 
 ```bash
-# 1) Install dependencies
+# 0) System packages required by cairosvg (skip if already installed)
+# Ubuntu/Debian:
+sudo apt-get install -y libcairo2-dev libglib2.0-0 libgl1 libpango-1.0-0 libpangocairo-1.0-0
+# macOS:
+# brew install cairo pango
+
+# 1a) For GPU (CUDA 12.x) — install torch first with the matching wheel index:
+pip install torch>=2.1 torchvision>=0.16 --extra-index-url https://download.pytorch.org/whl/cu121
+
+# 1b) Then install remaining dependencies (torch/torchvision already satisfied above)
 pip install -r requirements.txt
 
 # 2) Install SAM3 separately (not vendored in this repo)

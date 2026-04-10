@@ -15,6 +15,11 @@ google-genai>=1.0,<2.0
 # Core image + ML
 numpy>=1.26,<3.0
 Pillow>=10.0,<12.0
+# NOTE: plain `pip install` gives CPU-only torch.
+# For CUDA 12.1 GPU support, install first with:
+#   pip install torch>=2.1 torchvision>=0.16 --extra-index-url https://download.pytorch.org/whl/cu121
+# For CUDA 12.4:
+#   pip install torch>=2.1 torchvision>=0.16 --extra-index-url https://download.pytorch.org/whl/cu124
 torch>=2.1
 torchvision>=0.16
 timm>=0.9
