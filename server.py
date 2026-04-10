@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
+import io
 import shutil
 import signal
 import socket
+import zipfile
 import subprocess
 import threading
 import time
@@ -18,7 +21,7 @@ from typing import Optional
 
 import mimetypes
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -31,9 +34,8 @@ OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR = BASE_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-PYTHON_EXECUTABLE = os.environ.get("AUTOFIGURE_PYTHON") or sys.executable
-
-# Load .env file if present
+# Load .env file first so AUTOFIGURE_PYTHON / CUDA_VISIBLE_DEVICES etc. are
+# available when we compute PYTHON_EXECUTABLE below.
 _env_file = BASE_DIR / ".env"
 if _env_file.is_file():
     for _line in _env_file.read_text().splitlines():
@@ -42,9 +44,20 @@ if _env_file.is_file():
             _k, _v = _line.split("=", 1)
             os.environ.setdefault(_k.strip(), _v.strip())
 
+# Resolve the python executable to use for autofigure2 subprocesses.
+# Priority: AUTOFIGURE_PYTHON env var → local .venv → sys.executable (fallback).
+_local_venv_python = BASE_DIR / ".venv" / "bin" / "python"
+PYTHON_EXECUTABLE = (
+    os.environ.get("AUTOFIGURE_PYTHON")
+    or (str(_local_venv_python) if _local_venv_python.exists() else sys.executable)
+)
+
+
 DEFAULT_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-DEFAULT_SAM_PROMPT = "icon,person,robot,animal"
+_JOB_ID_RE = re.compile(r"^\d{8}_\d{6}_[0-9a-f]{8}$")
+
+DEFAULT_SAM_PROMPT = "icon,person,robot,animal,arrow,diagram,frame,connector"
 DEFAULT_PLACEHOLDER_MODE = "label"
 DEFAULT_MERGE_THRESHOLD = 0.01
 
@@ -82,9 +95,9 @@ def _redact_cmd_args(cmd: list[str]) -> str:
 class Job:
     job_id: str
     output_dir: Path
-    process: subprocess.Popen
-    queue: queue.Queue
     log_path: Path
+    queue: queue.Queue = field(default_factory=queue.Queue)
+    process: Optional[subprocess.Popen] = None
     log_lock: threading.Lock = field(default_factory=threading.Lock)
     seen: set[str] = field(default_factory=set)
     done: bool = False
@@ -121,6 +134,137 @@ app = FastAPI()
 JOBS: dict[str, Job] = {}
 
 
+@app.get("/")
+def serve_index() -> FileResponse:
+    return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/api/sessions")
+def list_sessions() -> JSONResponse:
+    sessions = []
+    if OUTPUTS_DIR.is_dir():
+        for entry in sorted(OUTPUTS_DIR.iterdir(), reverse=True):
+            if not entry.is_dir() or not _JOB_ID_RE.match(entry.name):
+                continue
+            job_id = entry.name
+            try:
+                created_at = datetime.strptime(job_id[:15], "%Y%m%d_%H%M%S").isoformat()
+            except ValueError:
+                continue
+            has_figure = (entry / "figure.png").is_file()
+            sessions.append({
+                "job_id": job_id,
+                "created_at": created_at,
+                "has_figure": has_figure,
+                "has_final_svg": (entry / "final.svg").is_file(),
+                "figure_url": f"/api/sessions/{job_id}/figure" if has_figure else None,
+            })
+    return JSONResponse(sessions)
+
+
+@app.get("/api/sessions/{job_id}/figure")
+def get_session_figure(job_id: str) -> Response:
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    candidate = (OUTPUTS_DIR / job_id / "figure.png").resolve()
+    allowed = (OUTPUTS_DIR / job_id).resolve()
+    if not str(candidate).startswith(str(allowed)):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Figure not found")
+    return _file_response(candidate)
+
+
+@app.post("/api/sessions/{job_id}/open")
+def open_session(job_id: str) -> JSONResponse:
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    if job_id in JOBS:
+        return JSONResponse({"job_id": job_id})
+    output_dir = (OUTPUTS_DIR / job_id).resolve()
+    if not output_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Session not found")
+    job = Job(
+        job_id=job_id,
+        output_dir=output_dir,
+        log_path=output_dir / "run.log",
+    )
+    JOBS[job_id] = job
+    _scan_artifacts(job)
+    if job.log_path.is_file():
+        job.push("artifact", {
+            "kind": "log",
+            "name": job.log_path.name,
+            "path": job.log_path.relative_to(output_dir).as_posix(),
+            "url": f"/api/artifacts/{job_id}/{job.log_path.name}",
+        })
+    job.push("status", {"state": "finished", "code": 0})
+    job.done = True
+    job.push("close", {})
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/api/sessions/{job_id}/download")
+def download_session(job_id: str) -> StreamingResponse:
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    output_dir = (OUTPUTS_DIR / job_id).resolve()
+    if not str(output_dir).startswith(str(OUTPUTS_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not output_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    def zip_stream():
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for file in sorted(output_dir.rglob("*")):
+                if file.is_file():
+                    zf.write(file, arcname=file.relative_to(output_dir))
+        buf.seek(0)
+        yield from iter(lambda: buf.read(65536), b"")
+
+    return StreamingResponse(
+        zip_stream(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{job_id}.zip"'},
+    )
+
+
+@app.put("/api/sessions/{job_id}/svg")
+async def save_session_svg(job_id: str, request: Request) -> JSONResponse:
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    output_dir = (OUTPUTS_DIR / job_id).resolve()
+    if not str(output_dir).startswith(str(OUTPUTS_DIR.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not output_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Session not found")
+    body = await request.body()
+    if len(body) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="SVG content too large")
+    svg_text = body.decode("utf-8", errors="replace")
+    if not svg_text.strip().startswith("<"):
+        raise HTTPException(status_code=400, detail="Invalid SVG content")
+    (output_dir / "edited.svg").write_text(svg_text, encoding="utf-8")
+    return JSONResponse({"saved": True})
+
+
+@app.delete("/api/sessions/{job_id}")
+def delete_session(job_id: str) -> JSONResponse:
+    if not _JOB_ID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+    output_dir = (OUTPUTS_DIR / job_id).resolve()
+    allowed = OUTPUTS_DIR.resolve()
+    if not str(output_dir).startswith(str(allowed)):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not output_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Remove from active jobs if present
+    JOBS.pop(job_id, None)
+    shutil.rmtree(output_dir)
+    return JSONResponse({"deleted": job_id})
+
+
 @app.get("/healthz")
 def healthz() -> JSONResponse:
     return JSONResponse({"status": "ok"})
@@ -135,9 +279,9 @@ def get_config() -> JSONResponse:
 @app.get("/api/defaults")
 def get_defaults() -> JSONResponse:
     return JSONResponse({
-        "apiKey": os.environ.get("OPENAI_API_KEY", "") or os.environ.get("OPENROUTER_API_KEY", ""),
-        "googleApiKey": os.environ.get("GOOGLE_API_KEY", ""),
-        "samApiKey": os.environ.get("ROBOFLOW_API_KEY", "") or os.environ.get("FAL_KEY", ""),
+        "hasApiKey": bool(os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")),
+        "hasGoogleApiKey": bool(os.environ.get("GOOGLE_API_KEY")),
+        "hasSamApiKey": bool(os.environ.get("ROBOFLOW_API_KEY") or os.environ.get("FAL_KEY")),
     })
 
 
@@ -186,8 +330,9 @@ def run_job(req: RunRequest) -> JSONResponse:
     cmd += ["--merge_threshold", str(merge_threshold)]
     if req.sam_backend:
         cmd += ["--sam_backend", req.sam_backend]
-    if req.sam_api_key:
-        cmd += ["--sam_api_key", req.sam_api_key]
+    _effective_sam_key = req.sam_api_key or os.environ.get("ROBOFLOW_API_KEY", "") or os.environ.get("FAL_KEY", "")
+    if _effective_sam_key:
+        cmd += ["--sam_api_key", _effective_sam_key]
     if req.sam_max_masks is not None:
         cmd += ["--sam_max_masks", str(req.sam_max_masks)]
     if req.optimize_iterations is not None:
@@ -204,6 +349,23 @@ def run_job(req: RunRequest) -> JSONResponse:
 
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    # Force subprocess to use the project venv exclusively.
+    # Strip any other venv bin dirs from PATH so they cannot shadow modules.
+    _venv_dir = str(BASE_DIR / ".venv")
+    env["VIRTUAL_ENV"] = _venv_dir
+    _venv_bin = os.path.join(_venv_dir, "bin")
+    _clean_path = os.pathsep.join(
+        p for p in env.get("PATH", "").split(os.pathsep)
+        if not (p.endswith("/bin") and ("/venv" in p or "/.venv" in p or "venvs" in p)
+                and p != _venv_bin)
+    )
+    env["PATH"] = _venv_bin + os.pathsep + _clean_path
+    env.pop("PYTHONPATH", None)
+    env.pop("CONDA_PREFIX", None)
+    env.pop("PYTHONSTARTUP", None)
+    env.pop("PYTHONRC", None)
+    env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONWARNINGS"] = "default"  # ensure warnings are not suppressed
 
     log_path = output_dir / "run.log"
     log_path.write_text(
@@ -371,11 +533,17 @@ def _pipe_output(job: Job, pipe, stream_name: str) -> None:
 
 def _scan_artifacts(job: Job) -> None:
     output_dir = job.output_dir
+    # Prefer edited.svg (user-saved) over final.svg (pipeline output)
+    final_svg = (
+        output_dir / "edited.svg"
+        if (output_dir / "edited.svg").is_file()
+        else output_dir / "final.svg"
+    )
     candidates = [
         output_dir / "figure.png",
         output_dir / "samed.png",
         output_dir / "template.svg",
-        output_dir / "final.svg",
+        final_svg,
     ]
 
     icons_dir = output_dir / "icons"
@@ -413,7 +581,7 @@ def _classify_artifact(rel_path: str) -> str:
         return "icon_raw"
     if rel_path == "template.svg":
         return "template_svg"
-    if rel_path == "final.svg":
+    if rel_path in ("final.svg", "edited.svg"):
         return "final_svg"
     return "artifact"
 
@@ -553,7 +721,7 @@ if __name__ == "__main__":
         for port in range(start_port, start_port + max_attempts):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 try:
-                    sock.bind(("0.0.0.0", port))
+                    sock.bind(("127.0.0.1", port))
                     return port
                 except OSError:
                     print(f"Port {port} is in use, trying next...")
@@ -571,7 +739,7 @@ if __name__ == "__main__":
 
         uvicorn.run(
             "server:app",
-            host="0.0.0.0",
+            host="127.0.0.1",
             port=actual_port,
             reload=False,
             access_log=False,

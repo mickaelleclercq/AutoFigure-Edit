@@ -19,6 +19,8 @@
         <div class="topbar-actions">
           <button class="ghost" id="backToConfigBtn">Back to Config</button>
           <button class="ghost" id="logToggle">Logs</button>
+          <button class="ghost" id="downloadBtn" title="Download session as zip" style="display:none">Save as…</button>
+          <span class="save-status" id="saveStatus"></span>
           <div class="job-pill">Job <span id="jobId"></span></div>
         </div>
       </header>
@@ -39,6 +41,13 @@
           </div>
         </div>
       </main>
+
+      <button class="fab fab--figure is-hidden" id="figureFab" aria-label="View original figure" title="View original figure">
+        <svg class="fab-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#f2f2f2" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <path d="M3 15l4-4 3 3 4-5 7 7"/>
+        </svg>
+      </button>
 
       <button class="fab" id="artifactToggle" aria-label="Artifacts">
         <svg class="fab-icon" viewBox="0 0 24 24" aria-hidden="true">

@@ -83,6 +83,10 @@ from PIL import Image, ImageDraw, ImageFont
 from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 
+# --- Environment sanity check ---
+print(f"[env] python={sys.executable}")
+print(f"[env] torch={torch.__file__}  version={torch.__version__}  cuda_built={torch.version.cuda}")
+print(f"[env] torch.cuda.available={torch.cuda.is_available()}")
 
 # ============================================================================
 # Provider configuration
@@ -1939,6 +1943,11 @@ def crop_and_remove_background(
         print("Warning: no valid boxes detected")
         return []
 
+    # Suppress known harmless FutureWarnings from birefnet.py (HF cached model)
+    # which imports deprecated timm.models.layers / timm.models.registry paths.
+    import warnings as _w
+    _w.filterwarnings("ignore", category=FutureWarning, module="timm")
+
     remover = BriaRMBG2Remover(model_path=rmbg_model_path, output_dir=icons_dir)
 
     icon_infos = []
@@ -3208,7 +3217,7 @@ if __name__ == "__main__":
     parser.add_argument("--reference_image_path", default=None, help="Reference image path (optional)")
 
     # SAM3 parameters
-    parser.add_argument("--sam_prompt", default="icon,robot,animal,person", help="SAM3 text prompts, supports comma-separated multiple prompts (e.g. 'icon,diagram,arrow', default: icon)")
+    parser.add_argument("--sam_prompt", default="icon,robot,animal,person,arrow,diagram,frame,connector", help="SAM3 text prompts, supports comma-separated multiple prompts (e.g. 'icon,diagram,arrow', default: icon)")
     parser.add_argument("--min_score", type=float, default=0.0, help="SAM3 minimum confidence threshold (default: 0.0)")
     parser.add_argument(
         "--sam_backend",

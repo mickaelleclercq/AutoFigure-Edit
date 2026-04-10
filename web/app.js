@@ -1,5 +1,5 @@
 (() => {
-  const INPUT_STATE_KEY = "autofigure_input_state_v1";
+  const INPUT_STATE_KEY = "autofigure_input_state_v3";
 
   const page = document.body.dataset.page;
   if (page === "input") {
@@ -48,7 +48,7 @@
         optimizeIterations: $("optimizeIterations")?.value ?? "0",
         imageSize: imageSizeInput?.value ?? "4K",
         samBackend: samBackend?.value ?? "roboflow",
-        samPrompt: samPrompt?.value ?? "icon,person,robot,animal",
+        samPrompt: samPrompt?.value ?? "icon,person,robot,animal,arrow,diagram,frame,connector",
         samApiKey: samApiKeyInput?.value ?? "",
         referencePath: uploadedReferencePath,
         referenceUrl: referencePreview?.src ?? "",
@@ -115,10 +115,11 @@
     function syncApiKeyForProvider() {
       if (!_serverDefaults || !$("apiKey")) return;
       const provider = $("provider")?.value ?? "gemini";
-      const key = provider === "gemini"
-        ? (_serverDefaults.googleApiKey || _serverDefaults.apiKey)
-        : _serverDefaults.apiKey;
-      if (key) $("apiKey").value = key;
+      const hasKey = provider === "gemini" ? _serverDefaults.hasGoogleApiKey : _serverDefaults.hasApiKey;
+      if (hasKey) {
+        $("apiKey").placeholder = "(server key configured)";
+        $("apiKey").value = "";
+      }
       saveInputState();
     }
 
@@ -155,11 +156,15 @@
           _serverDefaults = defs;
           if ($("apiKey")) {
             const provider = $("provider")?.value ?? "gemini";
-            const key = provider === "gemini" ? (defs.googleApiKey || defs.apiKey) : defs.apiKey;
-            if (key) $("apiKey").value = key;
+            const hasKey = provider === "gemini" ? defs.hasGoogleApiKey : defs.hasApiKey;
+            if (hasKey) {
+              $("apiKey").placeholder = "(server key configured)";
+              $("apiKey").value = "";
+            }
           }
-          if (defs.samApiKey && samApiKeyInput && !samApiKeyInput.value) {
-            samApiKeyInput.value = defs.samApiKey;
+          if (defs.hasSamApiKey && samApiKeyInput && !samApiKeyInput.value) {
+            samApiKeyInput.placeholder = "(server key configured)";
+            samApiKeyInput.value = "";
           }
           saveInputState();
         }
@@ -277,6 +282,219 @@
         confirmBtn.textContent = "Confirm -> Canvas";
       }
     });
+
+    initSessionsExplorer();
+  }
+
+  async function initSessionsExplorer() {
+    const grid = document.getElementById("sessionsGrid");
+    const empty = document.getElementById("sessionsEmpty");
+    const countEl = document.getElementById("sessionsCount");
+    if (!grid) return;
+
+    let sessions;
+    try {
+      const res = await fetch("/api/sessions");
+      if (!res.ok) return;
+      sessions = await res.json();
+    } catch (_err) {
+      return;
+    }
+
+    if (!sessions.length) return;
+
+    if (empty) empty.remove();
+    if (countEl) countEl.textContent = `${sessions.length} run${sessions.length === 1 ? "" : "s"}`;
+
+    for (const session of sessions) {
+      grid.appendChild(buildSessionCard(session, grid, countEl));
+    }
+  }
+
+  function buildSessionCard(session, grid, countEl) {
+    const card = document.createElement("div");
+    card.className = "session-card";
+
+    // thumbnail
+    const thumb = document.createElement("div");
+    thumb.className = "session-thumb";
+    if (session.figure_url) {
+      const img = document.createElement("img");
+      img.src = session.figure_url;
+      img.className = "session-img";
+      img.loading = "lazy";
+      img.alt = "";
+      thumb.appendChild(img);
+      thumb.classList.add("session-thumb--zoomable");
+      thumb.addEventListener("click", () => openLightbox(session.figure_url));
+    } else {
+      thumb.innerHTML = `<svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 15l4-4 3 3 4-5 7 7"/></svg>`;
+    }
+
+    // meta
+    const meta = document.createElement("div");
+    meta.className = "session-meta";
+
+    const topRow = document.createElement("div");
+    topRow.className = "session-meta-top";
+
+    const date = document.createElement("div");
+    date.className = "session-date";
+    date.textContent = formatSessionDate(session.created_at);
+
+    if (session.has_final_svg) {
+      const badge = document.createElement("span");
+      badge.className = "session-badge session-badge--done";
+      badge.textContent = "Done";
+      topRow.appendChild(badge);
+    }
+    topRow.appendChild(date);
+
+    const actions = document.createElement("div");
+    actions.className = "session-actions";
+
+    const openBtn = document.createElement("button");
+    openBtn.className = "session-open-btn";
+    openBtn.textContent = "Open";
+    openBtn.addEventListener("click", async () => {
+      openBtn.disabled = true;
+      openBtn.textContent = "…";
+      try {
+        const res = await fetch(`/api/sessions/${session.job_id}/open`, { method: "POST" });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        window.location.href = `/canvas.html?job=${encodeURIComponent(data.job_id)}`;
+      } catch (_err) {
+        openBtn.disabled = false;
+        openBtn.textContent = "Open";
+      }
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "session-del-btn";
+    delBtn.title = "Delete this run";
+    delBtn.innerHTML = `<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 7 5 16 15 16 15 7"/><line x1="3" y1="7" x2="17" y2="7"/><polyline points="8 7 8 4 12 4 12 7"/></svg>`;
+    delBtn.addEventListener("click", () => {
+      showDeleteConfirm(session.job_id, session.created_at, card, grid, countEl);
+    });
+
+    actions.appendChild(openBtn);
+    actions.appendChild(delBtn);
+    meta.appendChild(topRow);
+    meta.appendChild(actions);
+    card.appendChild(thumb);
+    card.appendChild(meta);
+    return card;
+  }
+
+  function showDeleteConfirm(jobId, createdAt, card, grid, countEl) {
+    // remove any existing modal
+    document.getElementById("deleteModal")?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "deleteModal";
+    overlay.className = "modal-overlay";
+
+    const box = document.createElement("div");
+    box.className = "modal-box";
+
+    const title = document.createElement("div");
+    title.className = "modal-title";
+    title.textContent = "Supprimer ce run ?";
+
+    const sub = document.createElement("div");
+    sub.className = "modal-sub";
+    sub.textContent = `${formatSessionDate(createdAt)} — cette action est irréversible.`;
+
+    const btnRow = document.createElement("div");
+    btnRow.className = "modal-actions";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.className = "modal-cancel";
+    cancelBtn.textContent = "Annuler";
+    cancelBtn.addEventListener("click", () => overlay.remove());
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.className = "modal-confirm";
+    confirmBtn.textContent = "Supprimer";
+    confirmBtn.addEventListener("click", async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = "…";
+      try {
+        const res = await fetch(`/api/sessions/${jobId}`, { method: "DELETE" });
+        if (!res.ok) throw new Error();
+        overlay.remove();
+        card.classList.add("session-card--removing");
+        card.addEventListener("transitionend", () => {
+          card.remove();
+          // update count
+          const remaining = grid.querySelectorAll(".session-card").length;
+          if (countEl) countEl.textContent = remaining ? `${remaining} run${remaining === 1 ? "" : "s"}` : "";
+          if (!remaining) {
+            const empty = document.createElement("div");
+            empty.className = "sessions-empty";
+            empty.textContent = "No previous runs yet.";
+            grid.appendChild(empty);
+          }
+        }, { once: true });
+      } catch (_err) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = "Supprimer";
+      }
+    });
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(confirmBtn);
+    box.appendChild(title);
+    box.appendChild(sub);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("modal-overlay--in"));
+  }
+
+  function openLightbox(url) {
+    document.getElementById("lightboxOverlay")?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "lightboxOverlay";
+    overlay.className = "lightbox-overlay";
+
+    const img = document.createElement("img");
+    img.src = url;
+    img.className = "lightbox-img";
+    img.alt = "";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "lightbox-close";
+    closeBtn.innerHTML = `<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="3" x2="17" y2="17"/><line x1="17" y1="3" x2="3" y2="17"/></svg>`;
+    closeBtn.addEventListener("click", () => closeLightbox(overlay));
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeLightbox(overlay); });
+    document.addEventListener("keydown", function onKey(e) {
+      if (e.key === "Escape") { closeLightbox(overlay); document.removeEventListener("keydown", onKey); }
+    });
+
+    overlay.appendChild(img);
+    overlay.appendChild(closeBtn);
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("lightbox-overlay--in"));
+  }
+
+  function closeLightbox(overlay) {
+    overlay.classList.remove("lightbox-overlay--in");
+    overlay.addEventListener("transitionend", () => overlay.remove(), { once: true });
+  }
+
+  function formatSessionDate(isoStr) {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleString(undefined, {
+      month: "short", day: "numeric", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
   }
 
   async function uploadReference(file, confirmBtn, previewEl, statusEl) {
@@ -333,9 +551,66 @@
     const backToConfigBtn = $("backToConfigBtn");
     const logPanel = $("logPanel");
     const logBody = $("logBody");
+    const downloadBtn = $("downloadBtn");
     const iframe = $("svgEditorFrame");
     const fallback = $("svgFallback");
     const fallbackObject = $("fallbackObject");
+    const saveStatusEl = $("saveStatus");
+
+    let lastSavedSvg = null;
+    let isSaving = false;
+    let autoSaveIntervalId = null;
+
+    function getSvgStringFromEditor() {
+      const win = iframe.contentWindow;
+      if (!win) return null;
+      try {
+        if (win.svgCanvas && typeof win.svgCanvas.getSvgString === "function") {
+          return win.svgCanvas.getSvgString();
+        }
+        if (win.svgEditor && win.svgEditor.svgCanvas && typeof win.svgEditor.svgCanvas.getSvgString === "function") {
+          return win.svgEditor.svgCanvas.getSvgString();
+        }
+      } catch (_) {
+        // cross-origin or not yet ready
+      }
+      return null;
+    }
+
+    function startAutoSave() {
+      if (autoSaveIntervalId) return;
+      autoSaveIntervalId = setInterval(autoSaveSvg, 3000);
+    }
+
+    async function autoSaveSvg() {
+      if (isSaving) return;
+      const svgText = getSvgStringFromEditor();
+      if (!svgText || svgText === lastSavedSvg) return;
+      isSaving = true;
+      if (saveStatusEl) saveStatusEl.textContent = "Saving\u2026";
+      try {
+        const res = await fetch(`/api/sessions/${jobId}/svg`, {
+          method: "PUT",
+          headers: { "Content-Type": "image/svg+xml" },
+          body: svgText,
+        });
+        if (res.ok) {
+          lastSavedSvg = svgText;
+          if (saveStatusEl) {
+            saveStatusEl.textContent = "Saved";
+            setTimeout(() => {
+              if (saveStatusEl.textContent === "Saved") saveStatusEl.textContent = "";
+            }, 2000);
+          }
+        } else {
+          if (saveStatusEl) saveStatusEl.textContent = "Save failed";
+        }
+      } catch (_) {
+        if (saveStatusEl) saveStatusEl.textContent = "Save failed";
+      } finally {
+        isSaving = false;
+      }
+    }
 
     if (!jobId) {
       statusText.textContent = "Missing job id";
@@ -343,6 +618,15 @@
     }
 
     jobIdEl.textContent = jobId;
+    if (downloadBtn) {
+      downloadBtn.style.display = "";
+      downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = `/api/sessions/${jobId}/download`;
+        a.download = `${jobId}.zip`;
+        a.click();
+      });
+    }
 
     toggle.addEventListener("click", () => {
       artifactPanel.classList.toggle("open");
@@ -383,8 +667,13 @@
     iframe.addEventListener("load", () => {
       svgReady = true;
       if (pendingSvgText) {
-        tryLoadSvg(pendingSvgText);
+        const text = pendingSvgText;
         pendingSvgText = null;
+        const loaded = tryLoadSvg(text);
+        if (loaded) {
+          lastSavedSvg = text;
+          startAutoSave();
+        }
       }
     });
 
@@ -403,11 +692,24 @@
     const eventSource = new EventSource(`/api/events/${jobId}`);
     let isFinished = false;
 
+    let figureUrl = null;
+    const figureFab = $("figureFab");
+    if (figureFab) {
+      figureFab.addEventListener("click", () => {
+        if (figureUrl) openLightbox(figureUrl);
+      });
+    }
+
     eventSource.addEventListener("artifact", async (event) => {
       const data = JSON.parse(event.data);
       if (!artifacts.has(data.path)) {
         artifacts.add(data.path);
         addArtifactCard(artifactList, data);
+      }
+
+      if (data.kind === "figure") {
+        figureUrl = data.url;
+        if (figureFab) figureFab.classList.remove("is-hidden");
       }
 
       if (data.kind === "template_svg" || data.kind === "final_svg") {
@@ -466,7 +768,10 @@
         }
 
         const loaded = tryLoadSvg(svgText);
-        if (!loaded) {
+        if (loaded) {
+          lastSavedSvg = svgText;
+          startAutoSave();
+        } else {
           iframe.src = `${svgEditPath}?url=${encodeURIComponent(url)}`;
         }
       } else {

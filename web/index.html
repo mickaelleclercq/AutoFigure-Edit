@@ -71,8 +71,8 @@
               id="samPrompt"
               type="text"
               class="input"
-              value="icon,person,robot,animal"
-              placeholder="icon,person,robot,animal"
+              value="icon,person,robot,animal,arrow,diagram,frame,connector"
+              placeholder="icon,person,robot,animal,arrow,diagram,frame,connector"
             />
           </div>
 
@@ -102,6 +102,16 @@
         <section class="actions">
           <button id="confirmBtn" class="primary">Confirm -> Canvas</button>
           <div id="errorMsg" class="error"></div>
+        </section>
+
+        <section class="sessions-section" id="sessionsSection">
+          <div class="sessions-header-row">
+            <span class="sessions-title">Recent Runs</span>
+            <span class="sessions-count" id="sessionsCount"></span>
+          </div>
+          <div class="sessions-rail" id="sessionsGrid">
+            <div class="sessions-empty" id="sessionsEmpty">No previous runs yet.</div>
+          </div>
         </section>
       </main>
     </div>

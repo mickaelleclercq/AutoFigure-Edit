@@ -98,6 +98,15 @@ body::before {
   font-weight: 600;
 }
 
+.save-status {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(245, 245, 245, 0.55);
+  min-width: 64px;
+  text-align: right;
+  transition: opacity 0.3s ease;
+}
+
 .input-layout {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;
@@ -347,6 +356,10 @@ select {
   transform: translateY(-2px);
 }
 
+.fab--figure {
+  bottom: 104px;
+}
+
 .fab-icon {
   width: 26px;
   height: 26px;
@@ -481,4 +494,348 @@ select {
   .canvas-stage {
     height: calc(100vh - 180px);
   }
+}
+
+/* ── Sessions Explorer ────────────────────────────────────────── */
+
+.sessions-section {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.sessions-header-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.sessions-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--muted);
+}
+
+.sessions-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sessions-rail {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.sessions-rail::-webkit-scrollbar {
+  height: 4px;
+}
+.sessions-rail::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sessions-rail::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 99px;
+}
+
+.sessions-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.session-card {
+  flex: 0 0 460px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(31, 27, 26, 0.06);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.3s ease;
+}
+
+.session-card--removing {
+  opacity: 0;
+  transform: scale(0.93) translateY(6px);
+  pointer-events: none;
+}
+
+.session-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(31, 27, 26, 0.12);
+}
+
+.session-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: rgba(31, 27, 26, 0.04);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(31, 27, 26, 0.3);
+  position: relative;
+}
+
+.session-thumb--zoomable {
+  cursor: zoom-in;
+}
+
+.session-thumb--zoomable::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(31, 27, 26, 0);
+  transition: background 0.15s ease;
+}
+
+.session-thumb--zoomable:hover::after {
+  background: rgba(31, 27, 26, 0.12);
+}
+
+.session-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.session-meta {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-meta-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-date {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.session-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.session-badge--done {
+  background: rgba(22, 155, 155, 0.1);
+  color: var(--accent-strong);
+}
+
+.session-open-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 7px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.session-open-btn:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.session-open-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.session-del-btn {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.session-del-btn:hover {
+  border-color: #c44536;
+  color: #c44536;
+  background: rgba(196, 69, 54, 0.06);
+}
+
+/* ── Lightbox ───────────────────────────────────────────────── */
+
+.lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 12, 11, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  padding: 24px;
+}
+
+.lightbox-overlay--in {
+  opacity: 1;
+}
+
+.lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.5);
+  transform: scale(0.94);
+  transition: transform 0.2s ease;
+  user-select: none;
+}
+
+.lightbox-overlay--in .lightbox-img {
+  transform: scale(1);
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.85);
+  transition: background 0.15s ease;
+  z-index: 201;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ── Delete confirm modal ────────────────────────────────────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 27, 26, 0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.modal-overlay--in {
+  opacity: 1;
+}
+
+.modal-box {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 28px 32px;
+  box-shadow: 0 24px 60px rgba(31, 27, 26, 0.18);
+  max-width: 380px;
+  width: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transform: translateY(8px);
+  transition: transform 0.18s ease;
+}
+
+.modal-overlay--in .modal-box {
+  transform: translateY(0);
+}
+
+.modal-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.modal-sub {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+  justify-content: flex-end;
+}
+
+.modal-cancel {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--ink);
+  transition: border-color 0.15s ease;
+}
+
+.modal-cancel:hover {
+  border-color: rgba(31, 27, 26, 0.35);
+}
+
+.modal-confirm {
+  background: #c44536;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.modal-confirm:hover {
+  opacity: 0.85;
+}
+
+.modal-confirm:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }

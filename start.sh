@@ -25,5 +25,30 @@ if [ -n "$PORT_PID" ]; then
     done
 fi
 
+# Absolute path to the project venv python (never relative, never depends on PATH)
+VENV_PYTHON="$(cd "$(dirname "$0")" && pwd)/.venv/bin/python"
+export AUTOFIGURE_PYTHON="$VENV_PYTHON"
+export PYTHONNOUSERSITE=1
+# Strip any inherited venv from PATH - only keep system + .venv/bin
+export VIRTUAL_ENV="$(cd "$(dirname "$0")" && pwd)/.venv"
+export PATH="$VIRTUAL_ENV/bin:$(echo "$PATH" | tr ':' '\n' | grep -vE '(/\.venv|/.venv|/venvs|sim_env)' | tr '\n' ':' | sed 's/:$//')"
+unset PYTHONPATH CONDA_PREFIX PYTHONSTARTUP
+
 echo "[start.sh] Starting AutoFigure-Edit on http://localhost:8000"
-exec /home/mickael/.venvs/sim_env/bin/python server.py
+echo "[start.sh] Python: $VENV_PYTHON"
+echo "[start.sh] VIRTUAL_ENV: $VIRTUAL_ENV"
+echo "[start.sh] PYTHONNOUSERSITE: $PYTHONNOUSERSITE"
+
+# Verify: print where torch will come from
+echo "[start.sh] torch location check:"
+PYTHONWARNINGS=ignore "$VENV_PYTHON" -c "
+import sys, torch, timm
+print('  python:', sys.executable)
+print('  torch:', torch.__file__, 'version:', torch.__version__)
+print('  torch.cuda:', torch.cuda.__file__)
+print('  timm:', timm.__file__)
+sim = [p for p in sys.path if 'sim_env' in p]
+print('  sim_env in sys.path:', sim if sim else 'CLEAN')
+" 2>/dev/null
+
+exec "$VENV_PYTHON" server.py
