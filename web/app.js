@@ -110,6 +110,18 @@
       }
     }
 
+    let _serverDefaults = null;
+
+    function syncApiKeyForProvider() {
+      if (!_serverDefaults || !$("apiKey")) return;
+      const provider = $("provider")?.value ?? "gemini";
+      const key = provider === "gemini"
+        ? (_serverDefaults.googleApiKey || _serverDefaults.apiKey)
+        : _serverDefaults.apiKey;
+      if (key) $("apiKey").value = key;
+      saveInputState();
+    }
+
     function syncImageSizeVisibility() {
       const provider = $("provider")?.value ?? "gemini";
       const show = provider === "gemini";
@@ -134,12 +146,35 @@
 
     applyInputState();
 
+    // Pre-fill from server defaults for any empty key fields
+    (async () => {
+      try {
+        const res = await fetch("/api/defaults");
+        if (res.ok) {
+          const defs = await res.json();
+          _serverDefaults = defs;
+          if ($("apiKey")) {
+            const provider = $("provider")?.value ?? "gemini";
+            const key = provider === "gemini" ? (defs.googleApiKey || defs.apiKey) : defs.apiKey;
+            if (key) $("apiKey").value = key;
+          }
+          if (defs.samApiKey && samApiKeyInput && !samApiKeyInput.value) {
+            samApiKeyInput.value = defs.samApiKey;
+          }
+          saveInputState();
+        }
+      } catch (_err) { /* silently ignore */ }
+    })();
+
     if (samBackend) {
       samBackend.addEventListener("change", syncSamApiKeyVisibility);
       syncSamApiKeyVisibility();
     }
     if ($("provider")) {
-      $("provider").addEventListener("change", syncImageSizeVisibility);
+      $("provider").addEventListener("change", () => {
+        syncImageSizeVisibility();
+        syncApiKeyForProvider();
+      });
       syncImageSizeVisibility();
     }
 

@@ -26,3 +26,7 @@ logs/
 Thumbs.db
 .idea/
 .vscode/
+
+# Backup and temp files
+*.bak
+texte.txt

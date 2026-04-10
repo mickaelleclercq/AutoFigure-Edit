@@ -16,8 +16,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import mimetypes
+
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -30,6 +32,17 @@ UPLOADS_DIR = BASE_DIR / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 PYTHON_EXECUTABLE = os.environ.get("AUTOFIGURE_PYTHON") or sys.executable
+
+# Load .env file if present
+_env_file = BASE_DIR / ".env"
+if _env_file.is_file():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _v = _line.split("=", 1)
+            os.environ.setdefault(_k.strip(), _v.strip())
+
+DEFAULT_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 DEFAULT_SAM_PROMPT = "icon,person,robot,animal"
 DEFAULT_PLACEHOLDER_MODE = "label"
@@ -119,6 +132,15 @@ def get_config() -> JSONResponse:
     return JSONResponse({"svgEditAvailable": available, "svgEditPath": rel_path})
 
 
+@app.get("/api/defaults")
+def get_defaults() -> JSONResponse:
+    return JSONResponse({
+        "apiKey": os.environ.get("OPENAI_API_KEY", "") or os.environ.get("OPENROUTER_API_KEY", ""),
+        "googleApiKey": os.environ.get("GOOGLE_API_KEY", ""),
+        "samApiKey": os.environ.get("ROBOFLOW_API_KEY", "") or os.environ.get("FAL_KEY", ""),
+    })
+
+
 @app.post("/api/run")
 def run_job(req: RunRequest) -> JSONResponse:
     job_id = datetime.now().strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
@@ -136,8 +158,14 @@ def run_job(req: RunRequest) -> JSONResponse:
         req.provider,
     ]
 
-    if req.api_key:
+    _google_key = os.environ.get("GOOGLE_API_KEY", "")
+    if req.provider == "gemini" and _google_key:
+        # Always use the Google API key for gemini — never pass an OpenAI key to Google
+        cmd += ["--api_key", _google_key]
+    elif req.api_key:
         cmd += ["--api_key", req.api_key]
+    elif DEFAULT_API_KEY:
+        cmd += ["--api_key", DEFAULT_API_KEY]
     if req.base_url:
         cmd += ["--base_url", req.base_url]
     if req.image_model:
@@ -254,8 +282,15 @@ def stream_events(job_id: str) -> StreamingResponse:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+def _file_response(path: Path) -> Response:
+    """Read file atomically to avoid Content-Length mismatch race condition."""
+    content = path.read_bytes()
+    media_type, _ = mimetypes.guess_type(str(path))
+    return Response(content=content, media_type=media_type or "application/octet-stream")
+
+
 @app.get("/api/artifacts/{job_id}/{path:path}")
-def get_artifact(job_id: str, path: str) -> FileResponse:
+def get_artifact(job_id: str, path: str) -> Response:
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -265,17 +300,17 @@ def get_artifact(job_id: str, path: str) -> FileResponse:
         raise HTTPException(status_code=400, detail="Invalid path")
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(candidate)
+    return _file_response(candidate)
 
 
 @app.get("/api/uploads/{filename}")
-def get_upload(filename: str) -> FileResponse:
+def get_upload(filename: str) -> Response:
     candidate = (UPLOADS_DIR / filename).resolve()
     if not str(candidate).startswith(str(UPLOADS_DIR.resolve())):
         raise HTTPException(status_code=400, detail="Invalid path")
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(candidate)
+    return _file_response(candidate)
 
 
 def _format_sse(event: str, data: dict) -> str:

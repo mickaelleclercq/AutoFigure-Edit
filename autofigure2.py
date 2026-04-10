@@ -1,64 +1,64 @@
 """
-Paper Method 到 SVG 图标替换完整流程 (Label 模式增强版 + Box合并 + 多Prompt支持)
+Paper Method to SVG icon replacement full pipeline (Label mode enhanced + Box merge + multi-prompt support)
 
-支持的 API Provider：
+Supported API Providers:
 - openrouter: OpenRouter API (https://openrouter.ai/api/v1)
-- bianxie: Bianxie API (https://api.bianxie.ai/v1) - 使用 OpenAI SDK
-- gemini: Google Gemini 官方 API (https://ai.google.dev/)
+- bianxie: Bianxie API (https://api.bianxie.ai/v1) - uses OpenAI SDK
+- gemini: Google Gemini official API (https://ai.google.dev/)
 
-占位符模式 (--placeholder_mode):
-- none: 无特殊样式（默认黑色边框）
-- box: 传入 boxlib 坐标给 LLM
-- label: 灰色填充+黑色边框+序号标签 <AF>01, <AF>02...（推荐）
+Placeholder mode (--placeholder_mode):
+- none: no special style (default black border)
+- box: pass boxlib coordinates to LLM
+- label: gray fill+black border+numbered labels <AF>01, <AF>02... (recommended)
 
-SAM3 多Prompt支持 (--sam_prompt):
-- 支持逗号分隔的多个text prompt
-- 例如: "icon,diagram,arrow,chart"
-- 对每个prompt分别检测，然后合并去重结果
-- boxlib.json 会记录每个box的来源prompt
+SAM3 multi-prompt support (--sam_prompt):
+- supports multiple comma-separated text prompts
+- example: "icon,diagram,arrow,chart"
+- detects separately for each prompt, then merges and deduplicates results
+- boxlib.json records the source prompt for each box
 
-Box合并功能 (--merge_threshold):
-- 对SAM3检测到的重叠box进行合并去重
-- 重叠比例 = 交集面积 / 较小box面积
-- 默认阈值0.9，设为0表示不合并
-- 跨prompt检测结果也会自动去重
+Box merge feature (--merge_threshold):
+- merges and deduplicates overlapping boxes from SAM3 detection
+- overlap ratio = intersection area / smaller box area
+- default threshold 0.9, set to 0 to disable merging
+- cross-prompt detection results are also automatically deduplicated
 
-流程：
-1. 输入 paper method 文本，调用 Gemini 生成学术风格图片 -> figure.png
-2. SAM3 分割图片，用灰色填充+黑色边框+序号标记 -> samed.png + boxlib.json
-   2.1 支持多个text prompts分别检测
-   2.2 合并重叠的boxes（可选，通过 --merge_threshold 控制）
-3. 裁切分割区域 + RMBG2 去背景 -> icons/icon_AF01_nobg.png, icon_AF02_nobg.png...
-4. 多模态调用 Gemini 生成 SVG（占位符样式与 samed.png 一致）-> template.svg
-4.5. SVG 语法验证（lxml）+ LLM 修复
-4.6. LLM 优化 SVG 模板（位置和样式对齐）-> optimized_template.svg
-     可通过 --optimize_iterations 参数控制迭代次数（0 表示跳过优化）
-4.7. 坐标系对齐：比较 figure.png 与 SVG 尺寸，计算缩放因子
-5. 根据序号匹配，将透明图标替换到 SVG 占位符中 -> final.svg
+Pipeline:
+1. Input paper method text, call LLM to generate academic-style image -> figure.png
+2. SAM3 segments image with gray fill+black border+numbered labels -> samed.png + boxlib.json
+   2.1 Supports multiple text prompts detected separately
+   2.2 Merges overlapping boxes (optional, controlled by --merge_threshold)
+3. Crop and remove background with RMBG2 -> icons/icon_AF01_nobg.png, icon_AF02_nobg.png...
+4. Multimodal call to generate SVG (placeholder style matches samed.png) -> template.svg
+4.5. SVG syntax validation (lxml) + LLM repair
+4.6. LLM optimizes SVG template (position and style alignment) -> optimized_template.svg
+     Number of iterations controlled by --optimize_iterations (0 = skip optimization)
+4.7. Coordinate alignment: compare figure.png and SVG dimensions, compute scale factors
+5. Replace transparent icons into SVG placeholders by label matching -> final.svg
 
-使用方法：
-    # 使用 Bianxie + label 模式（默认）
+Usage:
+    # Use Bianxie + label mode (default)
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --api_key "your-key"
 
-    # 使用 OpenRouter
+    # Use OpenRouter
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --api_key "sk-or-v1-xxx" --provider openrouter
 
-    # 使用 box 模式（传入坐标）
+    # Use box mode (pass coordinates)
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --placeholder_mode box
 
-    # 使用多个 SAM3 prompts 检测
+    # Use multiple SAM3 prompts for detection
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --sam_prompt "icon,diagram,arrow"
 
-    # 跳过步骤 4.6 优化（设置迭代次数为 0）
+    # Skip step 4.6 optimization (set iterations to 0)
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --optimize_iterations 0
 
-    # 设置步骤 4.6 优化迭代 3 次
+    # Set step 4.6 to optimize for 3 iterations
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --optimize_iterations 3
 
-    # 自定义 box 合并阈值（0.8）
+    # Custom box merge threshold (0.8)
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --merge_threshold 0.8
 
-    # 禁用 box 合并
+    # Disable box merging
     python iou_autofigure.py --method_file paper_method.txt --output_dir ./output --merge_threshold 0
 """
 
@@ -85,7 +85,7 @@ from transformers import AutoModelForImageSegmentation
 
 
 # ============================================================================
-# Provider 配置
+# Provider configuration
 # ============================================================================
 
 PROVIDER_CONFIGS = {
@@ -126,7 +126,7 @@ REFERENCE_IMAGE_PATH: Optional[str] = None
 
 
 # ============================================================================
-# 统一的 LLM 调用接口
+# Unified LLM call interface
 # ============================================================================
 
 def call_llm_text(
@@ -139,20 +139,20 @@ def call_llm_text(
     temperature: float = 0.7,
 ) -> Optional[str]:
     """
-    统一的文本 LLM 调用接口
+    Unified text LLM call interface
 
     Args:
-        prompt: 文本提示
-        api_key: API Key
-        model: 模型名称
+        prompt: text prompt
+        api_key: API key
+        model: model name
         base_url: API base URL
-        provider: API 提供商
-        reference_image: 参考图片（可选）
-        max_tokens: 最大输出 token 数
-        temperature: 温度参数
+        provider: API provider
+        reference_image: reference image (optional)
+        max_tokens: max output token count
+        temperature: temperature parameter
 
     Returns:
-        LLM 响应文本
+        LLM response text
     """
     if provider == "bianxie":
         return _call_bianxie_text(prompt, api_key, model, base_url, max_tokens, temperature)
@@ -171,19 +171,19 @@ def call_llm_multimodal(
     temperature: float = 0.7,
 ) -> Optional[str]:
     """
-    统一的多模态 LLM 调用接口
+    Unified multimodal LLM call interface
 
     Args:
-        contents: 内容列表（字符串或 PIL Image）
-        api_key: API Key
-        model: 模型名称
+        contents: content list (strings or PIL Images)
+        api_key: API key
+        model: model name
         base_url: API base URL
-        provider: API 提供商
-        max_tokens: 最大输出 token 数
-        temperature: 温度参数
+        provider: API provider
+        max_tokens: max output token count
+        temperature: temperature parameter
 
     Returns:
-        LLM 响应文本
+        LLM response text
     """
     if provider == "bianxie":
         return _call_bianxie_multimodal(contents, api_key, model, base_url, max_tokens, temperature)
@@ -202,17 +202,17 @@ def call_llm_image_generation(
     image_size: str = GEMINI_DEFAULT_IMAGE_SIZE,
 ) -> Optional[Image.Image]:
     """
-    统一的图像生成 LLM 调用接口
+    Unified image generation LLM call interface
 
     Args:
-        prompt: 文本提示
-        api_key: API Key
-        model: 模型名称
+        prompt: text prompt
+        api_key: API key
+        model: model name
         base_url: API base URL
-        provider: API 提供商
+        provider: API provider
 
     Returns:
-        生成的 PIL Image，失败返回 None
+        Generated PIL Image, or None on failure
     """
     if provider == "bianxie":
         return _call_bianxie_image_generation(prompt, api_key, model, base_url, reference_image)
@@ -228,7 +228,7 @@ def call_llm_image_generation(
 
 
 # ============================================================================
-# Bianxie Provider 实现 (使用 OpenAI SDK)
+# Bianxie provider implementation (using OpenAI SDK)
 # ============================================================================
 
 def _call_bianxie_text(
@@ -239,7 +239,7 @@ def _call_bianxie_text(
     max_tokens: int = 16000,
     temperature: float = 0.7,
 ) -> Optional[str]:
-    """使用 OpenAI SDK 调用 Bianxie 文本接口"""
+    """Call Bianxie text API using OpenAI SDK"""
     try:
         from openai import OpenAI
 
@@ -254,7 +254,7 @@ def _call_bianxie_text(
 
         return completion.choices[0].message.content if completion and completion.choices else None
     except Exception as e:
-        print(f"[Bianxie] API 调用失败: {e}")
+        print(f"[Bianxie] API call failed: {e}")
         raise
 
 
@@ -266,7 +266,7 @@ def _call_bianxie_multimodal(
     max_tokens: int = 16000,
     temperature: float = 0.7,
 ) -> Optional[str]:
-    """使用 OpenAI SDK 调用 Bianxie 多模态接口"""
+    """Call Bianxie multimodal API using OpenAI SDK"""
     try:
         from openai import OpenAI
 
@@ -294,7 +294,7 @@ def _call_bianxie_multimodal(
 
         return completion.choices[0].message.content if completion and completion.choices else None
     except Exception as e:
-        print(f"[Bianxie] 多模态 API 调用失败: {e}")
+        print(f"[Bianxie] Multimodal API call failed: {e}")
         raise
 
 
@@ -305,7 +305,7 @@ def _call_bianxie_image_generation(
     base_url: str,
     reference_image: Optional[Image.Image] = None,
 ) -> Optional[Image.Image]:
-    """使用 OpenAI SDK 调用 Bianxie 图像生成接口"""
+    """Call Bianxie image generation API using OpenAI SDK"""
     try:
         from openai import OpenAI
 
@@ -333,7 +333,7 @@ def _call_bianxie_image_generation(
         if not content:
             return None
 
-        # Bianxie 返回 Markdown 格式的图片: ![text](data:image/png;base64,...)
+        # Bianxie returns image in Markdown format: ![text](data:image/png;base64,...)
         pattern = r'data:image/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)'
         match = re.search(pattern, content)
 
@@ -344,16 +344,16 @@ def _call_bianxie_image_generation(
 
         return None
     except Exception as e:
-        print(f"[Bianxie] 图像生成 API 调用失败: {e}")
+        print(f"[Bianxie] Image generation API call failed: {e}")
         raise
 
 
 # ============================================================================
-# OpenRouter Provider 实现 (使用 requests)
+# OpenRouter provider implementation (using requests)
 # ============================================================================
 
 def _get_openrouter_headers(api_key: str) -> dict:
-    """获取 OpenRouter 请求头"""
+    """Get OpenRouter request headers"""
     return {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {api_key}',
@@ -363,7 +363,7 @@ def _get_openrouter_headers(api_key: str) -> dict:
 
 
 def _get_openrouter_api_url(base_url: str) -> str:
-    """获取 OpenRouter API URL"""
+    """Get OpenRouter API URL"""
     if not base_url.endswith('/chat/completions'):
         if base_url.endswith('/'):
             return base_url + 'chat/completions'
@@ -373,7 +373,7 @@ def _get_openrouter_api_url(base_url: str) -> str:
 
 
 def _extract_openrouter_message_text(message: Any) -> Optional[str]:
-    """尽可能从 OpenRouter message 中提取文本，兼容 string/list/object 多种 content 形态"""
+    """Extract text from OpenRouter message, compatible with string/list/object content shapes"""
     if not isinstance(message, dict):
         return None
 
@@ -424,7 +424,7 @@ def _extract_openrouter_message_text(message: Any) -> Optional[str]:
 
 
 def _summarize_openrouter_choice(choice: Any) -> str:
-    """构造可读的 OpenRouter choice 摘要，便于定位空响应问题"""
+    """Build readable OpenRouter choice summary to help diagnose empty response issues"""
     if not isinstance(choice, dict):
         return f"invalid choice type={type(choice).__name__}"
 
@@ -468,7 +468,7 @@ def _call_openrouter_text(
     max_tokens: int = 16000,
     temperature: float = 0.7,
 ) -> Optional[str]:
-    """使用 requests 调用 OpenRouter 文本接口"""
+    """Call OpenRouter text API using requests"""
     api_url = _get_openrouter_api_url(base_url)
     headers = _get_openrouter_headers(api_key)
 
@@ -483,7 +483,7 @@ def _call_openrouter_text(
     response = requests.post(api_url, headers=headers, json=payload, timeout=300)
 
     if response.status_code != 200:
-        raise Exception(f'OpenRouter API 错误: {response.status_code} - {response.text[:500]}')
+        raise Exception(f'OpenRouter API error: {response.status_code} - {response.text[:500]}')
 
     result = response.json()
 
@@ -491,7 +491,7 @@ def _call_openrouter_text(
         error_msg = result.get('error', {})
         if isinstance(error_msg, dict):
             error_msg = error_msg.get('message', str(error_msg))
-        raise Exception(f'OpenRouter API 错误: {error_msg}')
+        raise Exception(f'OpenRouter API error: {error_msg}')
 
     choices = result.get('choices', [])
     if not choices:
@@ -512,7 +512,7 @@ def _call_openrouter_multimodal(
     max_tokens: int = 16000,
     temperature: float = 0.7,
 ) -> Optional[str]:
-    """使用 requests 调用 OpenRouter 多模态接口"""
+    """Call OpenRouter multimodal API using requests"""
     api_url = _get_openrouter_api_url(base_url)
     headers = _get_openrouter_headers(api_key)
 
@@ -554,7 +554,7 @@ def _call_openrouter_multimodal(
             response = requests.post(api_url, headers=headers, json=payload, timeout=300)
 
             if response.status_code != 200:
-                raise Exception(f'OpenRouter API 错误: {response.status_code} - {response.text[:500]}')
+                raise Exception(f'OpenRouter API error: {response.status_code} - {response.text[:500]}')
 
             result = response.json()
 
@@ -562,11 +562,11 @@ def _call_openrouter_multimodal(
                 error_msg = result.get('error', {})
                 if isinstance(error_msg, dict):
                     error_msg = error_msg.get('message', str(error_msg))
-                raise Exception(f'OpenRouter API 错误: {error_msg}')
+                raise Exception(f'OpenRouter API error: {error_msg}')
 
             choices = result.get('choices', [])
             if not choices:
-                raise RuntimeError("OpenRouter 返回 choices 为空")
+                raise RuntimeError("OpenRouter returned empty choices")
 
             message = choices[0].get('message', {})
             text = _extract_openrouter_message_text(message)
@@ -575,7 +575,7 @@ def _call_openrouter_multimodal(
 
             choice_summary = _summarize_openrouter_choice(choices[0])
             raise RuntimeError(
-                "OpenRouter 多模态响应没有可解析文本内容。"
+                "OpenRouter multimodal response has no parseable text content."
                 f" model={model}, summary={choice_summary}"
             )
         except Exception as e:
@@ -583,8 +583,8 @@ def _call_openrouter_multimodal(
             if attempt < retry_count:
                 sleep_s = retry_delay * (2 ** (attempt - 1))
                 print(
-                    f"OpenRouter 多模态请求失败（尝试 {attempt}/{retry_count}）：{e}，"
-                    f"{sleep_s:.1f}s 后重试..."
+                    f"OpenRouter multimodal request failed (attempt {attempt}/{retry_count}): {e},"
+                    f"retrying in {sleep_s:.1f}s..."
                 )
                 time.sleep(sleep_s)
                 continue
@@ -602,7 +602,7 @@ def _call_openrouter_image_generation(
     base_url: str,
     reference_image: Optional[Image.Image] = None,
 ) -> Optional[Image.Image]:
-    """使用 requests 调用 OpenRouter 图像生成接口"""
+    """Call OpenRouter image generation API using requests"""
     api_url = _get_openrouter_api_url(base_url)
     headers = _get_openrouter_headers(api_key)
 
@@ -621,7 +621,7 @@ def _call_openrouter_image_generation(
     payload = {
         'model': model,
         'messages': messages,
-        # 对 OpenRouter 的 Gemini 图像模型，强制 image-only 可显著降低“返回纯文本无图片”的概率
+        # For OpenRouter Gemini image models, forcing image-only significantly reduces the chance of text-only responses
         'modalities': ['image'],
         'stream': False
     }
@@ -629,7 +629,7 @@ def _call_openrouter_image_generation(
     response = requests.post(api_url, headers=headers, json=payload, timeout=300)
 
     if response.status_code != 200:
-        raise Exception(f'OpenRouter API 错误: {response.status_code} - {response.text[:500]}')
+        raise Exception(f'OpenRouter API error: {response.status_code} - {response.text[:500]}')
 
     result = response.json()
 
@@ -637,7 +637,7 @@ def _call_openrouter_image_generation(
         error_msg = result.get('error', {})
         if isinstance(error_msg, dict):
             error_msg = error_msg.get('message', str(error_msg))
-        raise Exception(f'OpenRouter API 错误: {error_msg}')
+        raise Exception(f'OpenRouter API error: {error_msg}')
 
     def _extract_data_url_payload(data_url: str) -> Optional[str]:
         match = re.match(r"^data:image/[^;]+;base64,(.+)$", data_url, flags=re.IGNORECASE | re.DOTALL)
@@ -683,7 +683,7 @@ def _call_openrouter_image_generation(
 
     def _try_parse_image_candidate(candidate: Any) -> Optional[Image.Image]:
         if isinstance(candidate, dict):
-            # OpenAI/OpenRouter 常见图片字段
+            # Common image fields for OpenAI/OpenRouter
             for key in ("b64_json", "base64", "data"):
                 raw = candidate.get(key)
                 if isinstance(raw, str):
@@ -716,7 +716,7 @@ def _call_openrouter_image_generation(
         if candidate.startswith("http://") or candidate.startswith("https://"):
             return _load_remote_image(candidate)
 
-        # 极少数场景服务会直接返回纯 base64
+        # In rare cases the service returns raw base64 directly
         return _decode_base64_image(candidate)
 
     def _extract_markdown_image_urls(text: str) -> list[str]:
@@ -729,7 +729,7 @@ def _call_openrouter_image_generation(
 
     choices = result.get('choices', [])
     if not choices:
-        raise RuntimeError("OpenRouter 返回中没有 choices，无法解析生图结果。")
+        raise RuntimeError("OpenRouter response has no choices, cannot parse image result.")
 
     message = choices[0].get('message', {})
     candidates: list[Any] = []
@@ -746,18 +746,18 @@ def _call_openrouter_image_generation(
     elif isinstance(content, str):
         candidates.extend(_extract_markdown_image_urls(content))
 
-    # 某些中间层会把图片放到顶层字段
+    # Some proxy layers put the image in top-level fields
     top_images = result.get("images")
     if isinstance(top_images, list):
         candidates.extend(top_images)
 
     for item in candidates:
-        # 先尝试直接解析对象
+        # Try parsing the object directly first
         parsed = _try_parse_image_candidate(item)
         if parsed is not None:
             return parsed
 
-        # 再尝试从对象中抽取 URL 字符串
+        # Then try extracting a URL string from the object
         image_url = _extract_image_url(item)
         if image_url:
             parsed = _try_parse_image_candidate(image_url)
@@ -773,7 +773,7 @@ def _call_openrouter_image_generation(
     images_count = len(images) if isinstance(images, list) else 0
 
     raise RuntimeError(
-        "OpenRouter 响应成功但未包含可解析图片。"
+        "OpenRouter response succeeded but contained no parseable image."
         f" model={model}, message_keys={message_keys}, images_count={images_count}, "
         f"content_type={type(content).__name__}, refusal={refusal!r}, "
         f"content_preview={content_preview!r}"
@@ -781,22 +781,22 @@ def _call_openrouter_image_generation(
 
 
 # ============================================================================
-# Gemini Provider 实现 (Google 官方 SDK)
+# Gemini provider implementation (Google official SDK)
 # ============================================================================
 
 def _get_gemini_client(api_key: str):
-    """获取 Gemini 客户端（延迟导入，避免非 Gemini 场景强依赖）"""
+    """Get Gemini client (lazy import to avoid hard dependency in non-Gemini scenarios)"""
     try:
         from google import genai
     except ImportError as e:
         raise ImportError(
-            "未安装 google-genai，请执行: pip install google-genai"
+            "google-genai not installed, please run: pip install google-genai"
         ) from e
     return genai.Client(api_key=api_key)
 
 
 def _build_gemini_text_config(max_tokens: int, temperature: float):
-    """构建 Gemini 文本生成配置"""
+    """Build Gemini text generation config"""
     from google.genai import types
 
     return types.GenerateContentConfig(
@@ -806,7 +806,7 @@ def _build_gemini_text_config(max_tokens: int, temperature: float):
 
 
 def _extract_gemini_text(response: Any) -> Optional[str]:
-    """从 Gemini 响应中提取文本"""
+    """Extract text from Gemini response"""
     text = getattr(response, "text", None)
     if isinstance(text, str) and text.strip():
         return text
@@ -835,7 +835,7 @@ def _extract_gemini_text(response: Any) -> Optional[str]:
 
 
 def _extract_gemini_image(response: Any) -> Optional[Image.Image]:
-    """从 Gemini 响应中提取图片（优先使用 part.as_image()）"""
+    """Extract image from Gemini response (prefer part.as_image())"""
     parts = getattr(response, "parts", None) or []
     for part in parts:
         as_image = getattr(part, "as_image", None)
@@ -873,7 +873,7 @@ def _call_gemini_text(
     max_tokens: int = 16000,
     temperature: float = 0.7,
 ) -> Optional[str]:
-    """调用 Gemini 文本接口"""
+    """Call Gemini text API"""
     try:
         client = _get_gemini_client(api_key)
         response = client.models.generate_content(
@@ -883,7 +883,7 @@ def _call_gemini_text(
         )
         return _extract_gemini_text(response)
     except Exception as e:
-        print(f"[Gemini] 文本 API 调用失败: {e}")
+        print(f"[Gemini] Text API call failed: {e}")
         raise
 
 
@@ -894,7 +894,7 @@ def _call_gemini_multimodal(
     max_tokens: int = 16000,
     temperature: float = 0.7,
 ) -> Optional[str]:
-    """调用 Gemini 多模态接口"""
+    """Call Gemini multimodal API"""
     try:
         client = _get_gemini_client(api_key)
         response = client.models.generate_content(
@@ -904,7 +904,7 @@ def _call_gemini_multimodal(
         )
         return _extract_gemini_text(response)
     except Exception as e:
-        print(f"[Gemini] 多模态 API 调用失败: {e}")
+        print(f"[Gemini] Multimodal API call failed: {e}")
         raise
 
 
@@ -915,7 +915,7 @@ def _call_gemini_image_generation(
     reference_image: Optional[Image.Image] = None,
     image_size: str = GEMINI_DEFAULT_IMAGE_SIZE,
 ) -> Optional[Image.Image]:
-    """调用 Gemini 生图接口，默认 image_size=4K"""
+    """Call Gemini image generation API, default image_size=4K"""
     try:
         from google.genai import types
 
@@ -927,7 +927,7 @@ def _call_gemini_image_generation(
         if reference_image is None:
             contents: list[Any] = [prompt]
         else:
-            # 参考图放在前面，提示语在后，遵循 Gemini 多模态输入习惯
+            # Reference image first, prompt after, following Gemini multimodal input convention
             contents = [reference_image, prompt]
 
         response = client.models.generate_content(
@@ -937,12 +937,12 @@ def _call_gemini_image_generation(
         )
         return _extract_gemini_image(response)
     except Exception as e:
-        print(f"[Gemini] 图像生成 API 调用失败: {e}")
+        print(f"[Gemini] Image generation API call failed: {e}")
         raise
 
 
 # ============================================================================
-# 步骤一：调用 LLM 生成图片
+# Step 1: Call LLM to generate image
 # ============================================================================
 
 def generate_figure_from_method(
@@ -957,28 +957,28 @@ def generate_figure_from_method(
     image_size: str = GEMINI_DEFAULT_IMAGE_SIZE,
 ) -> str:
     """
-    使用 LLM 生成学术风格图片
+    Generate academic-style image using LLM
 
     Args:
-        method_text: Paper method 文本内容
-        output_path: 输出图片路径
-        api_key: API Key
-        model: 生图模型名称
+        method_text: Paper method text content
+        output_path: output image path
+        api_key: API key
+        model: image generation model name
         base_url: API base URL
-        provider: API 提供商
-        use_reference_image: 是否使用参考图片（None 则使用全局设置）
-        reference_image_path: 参考图片路径（None 则使用全局设置）
+        provider: API provider
+        use_reference_image: whether to use reference image (None uses global setting)
+        reference_image_path: reference image path (None uses global setting)
 
     Returns:
-        生成的图片路径
+        generated image path
     """
     print("=" * 60)
-    print("步骤一：使用 LLM 生成学术风格图片")
+    print("Step 1: Generating academic-style image using LLM")
     print("=" * 60)
     print(f"Provider: {provider}")
-    print(f"模型: {model}")
+    print(f"Model: {model}")
     if provider == "gemini":
-        print(f"分辨率: {image_size}")
+        print(f"Resolution: {image_size}")
 
     if use_reference_image is None:
         use_reference_image = USE_REFERENCE_IMAGE
@@ -990,9 +990,9 @@ def generate_figure_from_method(
     reference_image = None
     if use_reference_image:
         if not reference_image_path:
-            raise ValueError("启用参考图模式但未提供 reference_image_path")
+            raise ValueError("Reference image mode enabled but reference_image_path not provided")
         reference_image = Image.open(reference_image_path)
-        print(f"参考图片: {reference_image_path}")
+        print(f"Reference image: {reference_image_path}")
 
     if use_reference_image:
         prompt = f"""Generate a figure to visualize the method described below.
@@ -1025,7 +1025,7 @@ Below is the method section of the paper:
 
 The figure should be engaging and using academic journal style with cute characters."""
 
-    print(f"发送请求到: {base_url}")
+    print(f"Sending request to: {base_url}")
 
     img = call_llm_image_generation(
         prompt=prompt,
@@ -1038,44 +1038,44 @@ The figure should be engaging and using academic journal style with cute charact
     )
 
     if img is None:
-        raise Exception('API 响应中没有找到图片')
+        raise Exception('No image found in API response')
 
-    # 确保输出目录存在
+    # Ensure output directory exists
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 转换为 PNG 保存（Gemini 返回的图片对象 save() 可能不接受 format 参数）
+    # Convert to PNG for saving (Gemini image object save() may not accept format parameter)
     try:
         img.save(str(output_path), format='PNG')
     except TypeError:
         img.save(str(output_path))
-        # 某些 SDK 对象会按自身默认编码写盘（如 JPEG），这里强制转存为真实 PNG
+        # Some SDK objects save with their default encoding (e.g. JPEG); force re-save as real PNG
         with Image.open(str(output_path)) as normalized:
             normalized.save(str(output_path), format='PNG')
-    print(f"图片已保存: {output_path}")
+    print(f"Image saved: {output_path}")
     return str(output_path)
 
 
 # ============================================================================
-# 步骤二：SAM3 分割 + Box合并 + 灰色填充+黑色边框+序号标记
+# Step 2: SAM3 segmentation + Box merge + gray fill+black border+numbered labels
 # ============================================================================
 
 def get_label_font(box_width: int, box_height: int) -> ImageFont.FreeTypeFont:
     """
-    根据 box 尺寸动态计算合适的字体大小
+    Dynamically calculate appropriate font size based on box dimensions
 
     Args:
-        box_width: 矩形宽度
-        box_height: 矩形高度
+        box_width: rectangle width
+        box_height: rectangle height
 
     Returns:
-        PIL ImageFont 对象
+        PIL ImageFont object
     """
-    # 字体大小为 box 短边的 1/4，最小 12，最大 48
+    # Font size is 1/4 of the shorter box side, min 12, max 48
     min_dim = min(box_width, box_height)
     font_size = max(12, min(48, min_dim // 4))
 
-    # 尝试加载字体
+    # Try to load font
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
@@ -1090,7 +1090,7 @@ def get_label_font(box_width: int, box_height: int) -> ImageFont.FreeTypeFont:
         except (IOError, OSError):
             continue
 
-    # 回退到默认字体
+    # Fall back to default font
     try:
         return ImageFont.load_default()
     except:
@@ -1098,69 +1098,69 @@ def get_label_font(box_width: int, box_height: int) -> ImageFont.FreeTypeFont:
 
 
 # ============================================================================
-# Box 合并辅助函数
+# Box merge helper functions
 # ============================================================================
 
 def calculate_overlap_ratio(box1: dict, box2: dict) -> float:
     """
-    计算两个box的重叠比例
+    Calculate overlap ratio between two boxes
 
     Args:
-        box1: 第一个box，包含 x1, y1, x2, y2
-        box2: 第二个box，包含 x1, y1, x2, y2
+        box1: first box, containing x1, y1, x2, y2
+        box2: second box, containing x1, y1, x2, y2
 
     Returns:
-        重叠比例 = 交集面积 / 较小box面积
+        overlap ratio = intersection area / smaller box area
     """
-    # 计算交集区域
+    # Calculate intersection region
     x1 = max(box1["x1"], box2["x1"])
     y1 = max(box1["y1"], box2["y1"])
     x2 = min(box1["x2"], box2["x2"])
     y2 = min(box1["y2"], box2["y2"])
 
-    # 无交集
+    # No intersection
     if x2 <= x1 or y2 <= y1:
         return 0.0
 
     intersection = (x2 - x1) * (y2 - y1)
 
-    # 计算各自面积
+    # Calculate individual areas
     area1 = (box1["x2"] - box1["x1"]) * (box1["y2"] - box1["y1"])
     area2 = (box2["x2"] - box2["x1"]) * (box2["y2"] - box2["y1"])
 
     if area1 == 0 or area2 == 0:
         return 0.0
 
-    # 返回交集占较小box的比例
+    # Return intersection as fraction of smaller box
     return intersection / min(area1, area2)
 
 
 def merge_two_boxes(box1: dict, box2: dict) -> dict:
     """
-    合并两个box为最小包围矩形
+    Merge two boxes into their minimum bounding rectangle
 
     Args:
-        box1: 第一个box
-        box2: 第二个box
+        box1: first box
+        box2: second box
 
     Returns:
-        合并后的box（最小包围矩形）
+        merged box (minimum bounding rectangle)
     """
     merged = {
         "x1": min(box1["x1"], box2["x1"]),
         "y1": min(box1["y1"], box2["y1"]),
         "x2": max(box1["x2"], box2["x2"]),
         "y2": max(box1["y2"], box2["y2"]),
-        "score": max(box1.get("score", 0), box2.get("score", 0)),  # 保留较高置信度
+        "score": max(box1.get("score", 0), box2.get("score", 0)),  # Keep higher confidence
     }
-    # 合并 prompt 字段（如果存在）
+    # Merge prompt fields (if present)
     prompt1 = box1.get("prompt", "")
     prompt2 = box2.get("prompt", "")
     if prompt1 and prompt2:
         if prompt1 == prompt2:
             merged["prompt"] = prompt1
         else:
-            # 合并不同的 prompts，保留置信度更高的那个
+            # Merge different prompts, keep the one with higher confidence
             if box1.get("score", 0) >= box2.get("score", 0):
                 merged["prompt"] = prompt1
             else:
@@ -1174,19 +1174,19 @@ def merge_two_boxes(box1: dict, box2: dict) -> dict:
 
 def merge_overlapping_boxes(boxes: list, overlap_threshold: float = 0.9) -> list:
     """
-    迭代合并重叠的boxes
+    Iteratively merge overlapping boxes
 
     Args:
-        boxes: box列表，每个box包含 x1, y1, x2, y2, score
-        overlap_threshold: 重叠阈值，超过此值则合并（默认0.9）
+        boxes: list of boxes, each containing x1, y1, x2, y2, score
+        overlap_threshold: overlap threshold, boxes above this value are merged (default 0.9)
 
     Returns:
-        合并后的box列表，重新编号
+        merged box list, renumbered
     """
     if overlap_threshold <= 0 or len(boxes) <= 1:
         return boxes
 
-    # 复制列表避免修改原数据
+    # Copy list to avoid modifying original data
     working_boxes = [box.copy() for box in boxes]
 
     merged = True
@@ -1202,18 +1202,18 @@ def merge_overlapping_boxes(boxes: list, overlap_threshold: float = 0.9) -> list
             for j in range(i + 1, n):
                 ratio = calculate_overlap_ratio(working_boxes[i], working_boxes[j])
                 if ratio >= overlap_threshold:
-                    # 合并 box_i 和 box_j
+                    # Merge box_i and box_j
                     new_box = merge_two_boxes(working_boxes[i], working_boxes[j])
-                    # 移除原有两个box，添加合并后的box
+                    # Remove original two boxes, add merged box
                     working_boxes = [
                         working_boxes[k] for k in range(n) if k != i and k != j
                     ]
                     working_boxes.append(new_box)
                     merged = True
-                    print(f"    迭代 {iteration}: 合并 box {i} 和 box {j} (重叠比例: {ratio:.2f})")
+                    print(f"    Iteration {iteration}: merged box {i} and box {j} (overlap ratio: {ratio:.2f})")
                     break
 
-    # 重新编号
+    # Renumber
     result = []
     for idx, box in enumerate(working_boxes):
         result_box = {
@@ -1225,7 +1225,7 @@ def merge_overlapping_boxes(boxes: list, overlap_threshold: float = 0.9) -> list
             "y2": box["y2"],
             "score": box.get("score", 0),
         }
-        # 保留 prompt 字段（如果存在）
+        # Keep prompt field (if present)
         if "prompt" in box:
             result_box["prompt"] = box["prompt"]
         result.append(result_box)
@@ -1437,10 +1437,10 @@ def _call_sam3_api(
     }
     response = requests.post(SAM3_FAL_API_URL, headers=headers, json=payload, timeout=SAM3_API_TIMEOUT)
     if response.status_code != 200:
-        raise Exception(f"SAM3 API 错误: {response.status_code} - {response.text[:500]}")
+        raise Exception(f"SAM3 API error: {response.status_code} - {response.text[:500]}")
     result = response.json()
     if isinstance(result, dict) and "error" in result:
-        raise Exception(f"SAM3 API 错误: {result.get('error')}")
+        raise Exception(f"SAM3 API error: {result.get('error')}")
     return result
 
 
@@ -1496,25 +1496,25 @@ def _call_sam3_roboflow_api(
                 response = requests.post(url, json=payload, timeout=SAM3_API_TIMEOUT)
                 if response.status_code != 200:
                     raise Exception(
-                        f"SAM3 Roboflow API 错误: {response.status_code} - {response.text[:500]}"
+                        f"SAM3 Roboflow API error: {response.status_code} - {response.text[:500]}"
                     )
                 result = response.json()
                 if isinstance(result, dict) and "error" in result:
-                    raise Exception(f"SAM3 Roboflow API 错误: {result.get('error')}")
+                    raise Exception(f"SAM3 Roboflow API error: {result.get('error')}")
                 return result
             except requests.exceptions.RequestException as e:
                 last_error = e
-                # DNS/网络偶发问题时做指数退避重试
+                # Exponential backoff retry for intermittent DNS/network issues
                 if attempt < retry_count:
                     sleep_s = retry_delay * (2 ** (attempt - 1))
                     safe_error = _redact_secret(str(e))
                     print(
-                        f"    Roboflow 请求失败（尝试 {attempt}/{retry_count}）：{safe_error}，"
-                        f"{sleep_s:.1f}s 后重试..."
+                        f"    Roboflow request failed (attempt {attempt}/{retry_count}): {safe_error},"
+                        f"retrying in {sleep_s:.1f}s..."
                     )
                     time.sleep(sleep_s)
                     continue
-                # 当前 endpoint 的重试次数用尽，切到下一个 endpoint
+                # Current endpoint retries exhausted, switching to next endpoint
                 break
             except Exception as e:
                 last_error = e
@@ -1522,17 +1522,17 @@ def _call_sam3_roboflow_api(
 
     if last_error is not None and _is_dns_error(last_error):
         raise RuntimeError(
-            "SAM3 Roboflow 域名解析失败（容器内 DNS 无法解析 serverless.roboflow.com）。\n"
-            "可用修复：\n"
-            "1) 在 docker-compose.yml 设置 dns（如 223.5.5.5 / 119.29.29.29）；\n"
-            "2) 在 .env 里设置 ROBOFLOW_API_URL 或 ROBOFLOW_API_FALLBACK_URLS；\n"
-            "3) 临时改用 --sam_backend fal（需 FAL_KEY）。"
+            "SAM3 Roboflow DNS resolution failed (container DNS cannot resolve serverless.roboflow.com).\n"
+            "Available fixes:\n"
+            "1) Set dns in docker-compose.yml (e.g. 223.5.5.5 / 119.29.29.29);\n"
+            "2) Set ROBOFLOW_API_URL or ROBOFLOW_API_FALLBACK_URLS in .env;\n"
+            "3) Temporarily switch to --sam_backend fal (requires FAL_KEY)."
         ) from last_error
 
     if last_error is not None:
-        raise RuntimeError(f"SAM3 Roboflow 请求失败：{_redact_secret(str(last_error))}") from last_error
+        raise RuntimeError(f"SAM3 Roboflow request failed: {_redact_secret(str(last_error))}") from last_error
 
-    raise RuntimeError("SAM3 Roboflow 请求失败：未知错误")
+    raise RuntimeError("SAM3 Roboflow request failed: unknown error")
 
 
 def segment_with_sam3(
@@ -1546,25 +1546,25 @@ def segment_with_sam3(
     sam_max_masks: int = 32,
 ) -> tuple[str, str, list]:
     """
-    使用 SAM3 分割图片，用灰色填充+黑色边框+序号标记，生成 boxlib.json
+    Segment image using SAM3 with gray fill+black border+numbered labels, generate boxlib.json
 
-    占位符样式：
-    - 灰色填充 (#808080)
-    - 黑色边框 (width=3)
-    - 白色居中序号标签 (<AF>01, <AF>02, ...)
+    Placeholder style:
+    - Gray fill (#808080)
+    - Black border (width=3)
+    - White centered numbered labels (<AF>01, <AF>02, ...)
 
     Args:
-        image_path: 输入图片路径
-        output_dir: 输出目录
-        text_prompts: SAM3 文本提示，支持逗号分隔的多个prompt（如 "icon,diagram,arrow"）
-        min_score: 最低置信度阈值
-        merge_threshold: Box合并阈值，重叠比例超过此值则合并（0表示不合并，默认0.9）
+        image_path: input image path
+        output_dir: output directory
+        text_prompts: SAM3 text prompts, supports comma-separated multiple prompts (e.g. "icon,diagram,arrow")
+        min_score: minimum confidence threshold
+        merge_threshold: box merge threshold, boxes with overlap above this value are merged (0=no merge, default 0.9)
 
     Returns:
         (samed_path, boxlib_path, valid_boxes)
     """
     print("\n" + "=" * 60)
-    print("步骤二：SAM3 分割 + 灰色填充+黑色边框+序号标记")
+    print("Step 2: SAM3 segmentation + gray fill+black border+numbered labels")
     print("=" * 60)
 
     output_dir = Path(output_dir)
@@ -1572,13 +1572,13 @@ def segment_with_sam3(
 
     image = Image.open(image_path)
     original_size = image.size
-    print(f"原图尺寸: {original_size[0]} x {original_size[1]}")
+    print(f"Original image size: {original_size[0]} x {original_size[1]}")
 
-    # 解析多个 prompts（支持逗号分隔）
+    # Parse multiple prompts (comma-separated)
     prompt_list = [p.strip() for p in text_prompts.split(",") if p.strip()]
-    print(f"使用的 prompts: {prompt_list}")
+    print(f"Using prompts: {prompt_list}")
 
-    # 对每个 prompt 分别检测并收集结果
+    # Detect separately for each prompt and collect results
     all_detected_boxes = []
     total_detected = 0
 
@@ -1595,16 +1595,16 @@ def segment_with_sam3(
         bpe_path = sam3_dir / "assets" / "bpe_simple_vocab_16e6.txt.gz"
         if not bpe_path.exists():
             bpe_path = None
-            print("警告: 未找到 bpe 文件，使用默认路径")
+            print("Warning: bpe file not found, using default path")
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"使用设备: {device}")
+        print(f"Using device: {device}")
         model = build_sam3_image_model(device=device, bpe_path=str(bpe_path) if bpe_path else None)
         processor = Sam3Processor(model, device=device)
         inference_state = processor.set_image(image)
 
         for prompt in prompt_list:
-            print(f"\n  正在检测: '{prompt}'")
+            print(f"\n  Detecting: '{prompt}'")
             output = processor.set_text_prompt(state=inference_state, prompt=prompt)
 
             boxes = output["boxes"]
@@ -1622,14 +1622,14 @@ def segment_with_sam3(
                     all_detected_boxes.append({
                         "x1": x1, "y1": y1, "x2": x2, "y2": y2,
                         "score": float(score),
-                        "prompt": prompt  # 记录来源 prompt
+                        "prompt": prompt  # record source prompt
                     })
                     prompt_count += 1
-                    print(f"    对象 {prompt_count}: ({x1}, {y1}, {x2}, {y2}), score={score:.3f}")
+                    print(f"    Object {prompt_count}: ({x1}, {y1}, {x2}, {y2}), score={score:.3f}")
                 else:
-                    print(f"    跳过: score={score:.3f} < {min_score}")
+                    print(f"    Skipped: score={score:.3f} < {min_score}")
 
-            print(f"  '{prompt}' 检测到 {prompt_count} 个有效对象")
+            print(f"  '{prompt}' detected {prompt_count} valid objects")
             total_detected += prompt_count
 
         del model, processor
@@ -1640,10 +1640,10 @@ def segment_with_sam3(
         api_key = _get_fal_api_key(sam_api_key)
         max_masks = max(1, min(32, int(sam_max_masks)))
         image_data_uri = _image_to_data_uri(image)
-        print(f"SAM3 fal.ai API 模式: max_masks={max_masks}")
+        print(f"SAM3 fal.ai API mode: max_masks={max_masks}")
 
         for prompt in prompt_list:
-            print(f"\n  正在检测: '{prompt}'")
+            print(f"\n  Detecting: '{prompt}'")
             response_json = _call_sam3_api(
                 image_data_uri=image_data_uri,
                 prompt=prompt,
@@ -1660,22 +1660,22 @@ def segment_with_sam3(
                     all_detected_boxes.append({
                         "x1": x1, "y1": y1, "x2": x2, "y2": y2,
                         "score": score_val,
-                        "prompt": prompt  # 记录来源 prompt
+                        "prompt": prompt  # record source prompt
                     })
                     prompt_count += 1
-                    print(f"    对象 {prompt_count}: ({x1}, {y1}, {x2}, {y2}), score={score_val:.3f}")
+                    print(f"    Object {prompt_count}: ({x1}, {y1}, {x2}, {y2}), score={score_val:.3f}")
                 else:
-                    print(f"    跳过: score={score_val:.3f} < {min_score}")
+                    print(f"    Skipped: score={score_val:.3f} < {min_score}")
 
-            print(f"  '{prompt}' 检测到 {prompt_count} 个有效对象")
+            print(f"  '{prompt}' detected {prompt_count} valid objects")
             total_detected += prompt_count
     elif backend == "roboflow":
         api_key = _get_roboflow_api_key(sam_api_key)
         image_base64 = _image_to_base64(image)
-        print("SAM3 Roboflow API 模式: format=polygon")
+        print("SAM3 Roboflow API mode: format=polygon")
 
         for prompt in prompt_list:
-            print(f"\n  正在检测: '{prompt}'")
+            print(f"\n  Detecting: '{prompt}'")
             response_json = _call_sam3_roboflow_api(
                 image_base64=image_base64,
                 prompt=prompt,
@@ -1695,18 +1695,18 @@ def segment_with_sam3(
                         "prompt": prompt
                     })
                     prompt_count += 1
-                    print(f"    对象 {prompt_count}: ({x1}, {y1}, {x2}, {y2}), score={score_val:.3f}")
+                    print(f"    Object {prompt_count}: ({x1}, {y1}, {x2}, {y2}), score={score_val:.3f}")
                 else:
-                    print(f"    跳过: score={score_val:.3f} < {min_score}")
+                    print(f"    Skipped: score={score_val:.3f} < {min_score}")
 
-            print(f"  '{prompt}' 检测到 {prompt_count} 个有效对象")
+            print(f"  '{prompt}' detected {prompt_count} valid objects")
             total_detected += prompt_count
     else:
-        raise ValueError(f"未知 SAM3 后端: {sam_backend}")
+        raise ValueError(f"Unknown SAM3 backend: {sam_backend}")
 
-    print(f"\n总计检测: {total_detected} 个对象 (来自 {len(prompt_list)} 个 prompts)")
+    print(f"\nTotal detected: {total_detected} objects (from {len(prompt_list)} prompts)")
 
-    # 为所有检测到的 boxes 分配临时 id 和 label（用于合并）
+    # Assign temporary id and label to all detected boxes (for merging)
     valid_boxes = []
     for i, box_data in enumerate(all_detected_boxes):
         valid_boxes.append({
@@ -1720,23 +1720,23 @@ def segment_with_sam3(
             "prompt": box_data["prompt"]
         })
 
-    # === 新增：合并重叠的boxes ===
+    # === Box merge step ===
     if merge_threshold > 0 and len(valid_boxes) > 1:
-        print(f"\n  合并重叠的boxes (阈值: {merge_threshold})...")
+        print(f"\n  Merging overlapping boxes (threshold: {merge_threshold})...")
         original_count = len(valid_boxes)
         valid_boxes = merge_overlapping_boxes(valid_boxes, merge_threshold)
         merged_count = original_count - len(valid_boxes)
         if merged_count > 0:
-            print(f"  合并完成: {original_count} -> {len(valid_boxes)} (合并了 {merged_count} 个)")
-            # 打印合并后的box信息
-            print(f"\n  合并后的boxes:")
+            print(f"  Merge complete: {original_count} -> {len(valid_boxes)} ({merged_count} merged)")
+            # Print merged box info
+            print(f"\n  Merged boxes:")
             for box_info in valid_boxes:
                 print(f"    {box_info['label']}: ({box_info['x1']}, {box_info['y1']}, {box_info['x2']}, {box_info['y2']})")
         else:
-            print(f"  无需合并，所有boxes重叠比例均低于阈值")
+            print(f"  No merge needed, all box overlap ratios below threshold")
 
-    # 使用合并后的 valid_boxes 创建标记图片
-    print(f"\n  绘制 samed.png (使用 {len(valid_boxes)} 个boxes)...")
+    # Create labeled image using merged valid_boxes
+    print(f"\n  Drawing samed.png (using {len(valid_boxes)} boxes)...")
     samed_image = image.copy()
     draw = ImageDraw.Draw(samed_image)
 
@@ -1744,25 +1744,25 @@ def segment_with_sam3(
         x1, y1, x2, y2 = box_info["x1"], box_info["y1"], box_info["x2"], box_info["y2"]
         label = box_info["label"]
 
-        # 灰色填充 + 黑色边框
+        # Gray fill + black border
         draw.rectangle([x1, y1, x2, y2], fill="#808080", outline="black", width=3)
 
-        # 计算中心点
+        # Calculate center point
         cx = (x1 + x2) // 2
         cy = (y1 + y2) // 2
 
-        # 获取合适大小的字体
+        # Get appropriately sized font
         box_width = x2 - x1
         box_height = y2 - y1
         font = get_label_font(box_width, box_height)
 
-        # 绘制白色居中序号标签
+        # Draw white centered numbered label
         if font:
-            # 使用 anchor="mm" 居中绘制（如果支持）
+            # Use anchor="mm" for centered drawing (if supported)
             try:
                 draw.text((cx, cy), label, fill="white", anchor="mm", font=font)
             except TypeError:
-                # 旧版本 PIL 不支持 anchor，手动计算位置
+                # Older PIL doesn't support anchor, calculate position manually
                 bbox = draw.textbbox((0, 0), label, font=font)
                 text_width = bbox[2] - bbox[0]
                 text_height = bbox[3] - bbox[1]
@@ -1770,12 +1770,12 @@ def segment_with_sam3(
                 text_y = cy - text_height // 2
                 draw.text((text_x, text_y), label, fill="white", font=font)
         else:
-            # 无字体时使用默认
+            # Use default when no font available
             draw.text((cx, cy), label, fill="white")
 
     samed_path = output_dir / "samed.png"
     samed_image.save(str(samed_path))
-    print(f"标记图片已保存: {samed_path}")
+    print(f"Labeled image saved: {samed_path}")
 
     boxlib_data = {
         "image_size": {"width": original_size[0], "height": original_size[1]},
@@ -1787,13 +1787,13 @@ def segment_with_sam3(
     boxlib_path = output_dir / "boxlib.json"
     with open(boxlib_path, 'w', encoding='utf-8') as f:
         json.dump(boxlib_data, f, indent=2, ensure_ascii=False)
-    print(f"Box 信息已保存: {boxlib_path}")
+    print(f"Box info saved: {boxlib_path}")
 
     return str(samed_path), str(boxlib_path), valid_boxes
 
 
 # ============================================================================
-# 步骤三：裁切 + RMBG2 去背景
+# Step 3: Crop + RMBG2 background removal
 # ============================================================================
 
 def _get_hf_token() -> Optional[str]:
@@ -1825,16 +1825,16 @@ def _ensure_rmbg2_access_ready(rmbg_model_path: Optional[str]) -> None:
     if _has_rmbg2_cached_weights():
         return
     raise RuntimeError(
-        "步骤三需要使用 briaai/RMBG-2.0，但当前未检测到可用访问凭据。\n"
-        "请先完成：\n"
-        "1) 申请访问 https://huggingface.co/briaai/RMBG-2.0\n"
-        "2) 在 .env 设置 HF_TOKEN=你的Read权限token\n"
-        "3) 重新运行 docker compose up -d --build"
+        "Step 3 requires briaai/RMBG-2.0, but no valid access credentials were found.\n"
+        "Please complete the following:\n"
+        "1) Request access at https://huggingface.co/briaai/RMBG-2.0\n"
+        "2) Set HF_TOKEN=your_read_token in .env\n"
+        "3) Re-run: docker compose up -d --build"
     )
 
 
 class BriaRMBG2Remover:
-    """使用 BRIA-RMBG 2.0 模型进行高质量背景抠图"""
+    """High-quality background removal using BRIA-RMBG 2.0 model"""
 
     def __init__(self, model_path: Path | str | None = None, output_dir: Path | str | None = None):
         self.model_path = Path(model_path) if model_path else None
@@ -1847,16 +1847,16 @@ class BriaRMBG2Remover:
         hf_token = _get_hf_token()
 
         if self.model_path and self.model_path.exists():
-            print(f"加载本地 RMBG 权重: {self.model_path}")
+            print(f"Loading local RMBG weights: {self.model_path}")
             self.model = AutoModelForImageSegmentation.from_pretrained(
                 str(self.model_path), trust_remote_code=True,
             ).eval().to(device)
         else:
-            print("从 HuggingFace 加载 RMBG-2.0 模型...")
+            print("Loading RMBG-2.0 model from HuggingFace...")
             if hf_token:
-                print("检测到 HF_TOKEN，使用鉴权访问 gated 模型。")
+                print("HF_TOKEN detected, using authenticated access for gated model.")
             else:
-                print("未检测到 HF_TOKEN，尝试匿名访问（gated 模型通常会失败）。")
+                print("HF_TOKEN not detected, attempting anonymous access (will usually fail for gated model).")
 
             try:
                 self.model = AutoModelForImageSegmentation.from_pretrained(
@@ -1875,12 +1875,12 @@ class BriaRMBG2Remover:
                 )
                 if is_gated:
                     raise RuntimeError(
-                        "无法下载 RMBG-2.0（HuggingFace gated 模型鉴权失败）。\n"
-                        "请按以下步骤配置：\n"
-                        "1) 登录并申请模型访问权限: https://huggingface.co/briaai/RMBG-2.0\n"
-                        "2) 创建具有 Read 权限的 token\n"
-                        "3) 在项目 .env 设置 HF_TOKEN=你的token\n"
-                        "4) 重新执行: docker compose up -d --build"
+                        "Cannot download RMBG-2.0 (HuggingFace gated model authentication failed).\n"
+                        "Please configure as follows:\n"
+                        "1) Log in and request model access: https://huggingface.co/briaai/RMBG-2.0\n"
+                        "2) Create a token with Read permissions\n"
+                        "3) Set HF_TOKEN=your_token in the project .env\n"
+                        "4) Re-run: docker compose up -d --build"
                     ) from e
                 raise
 
@@ -1917,12 +1917,12 @@ def crop_and_remove_background(
     rmbg_model_path: Optional[str] = None,
 ) -> list[dict]:
     """
-    根据 boxlib.json 裁切图片并使用 RMBG2 去背景
+    Crop image according to boxlib.json and remove background using RMBG2
 
-    文件命名使用 label: icon_AF01.png, icon_AF01_nobg.png
+    Files named by label: icon_AF01.png, icon_AF01_nobg.png
     """
     print("\n" + "=" * 60)
-    print("步骤三：裁切 + RMBG2 去背景")
+    print("Step 3: Crop + RMBG2 background removal")
     print("=" * 60)
 
     output_dir = Path(output_dir)
@@ -1936,7 +1936,7 @@ def crop_and_remove_background(
     boxes = boxlib_data["boxes"]
 
     if len(boxes) == 0:
-        print("警告: 没有检测到有效的 box")
+        print("Warning: no valid boxes detected")
         return []
 
     remover = BriaRMBG2Remover(model_path=rmbg_model_path, output_dir=icons_dir)
@@ -1945,7 +1945,7 @@ def crop_and_remove_background(
     for box_info in boxes:
         box_id = box_info["id"]
         label = box_info.get("label", f"<AF>{box_id + 1:02d}")
-        # 将 <AF>01 转换为 AF01 用于文件名
+        # Convert <AF>01 to AF01 for filename
         label_clean = label.replace("<", "").replace(">", "")
 
         x1, y1, x2, y2 = box_info["x1"], box_info["y1"], box_info["x2"], box_info["y2"]
@@ -1966,7 +1966,7 @@ def crop_and_remove_background(
             "nobg_path": nobg_path,
         })
 
-        print(f"  {label}: 裁切并去背景完成 -> {nobg_path}")
+        print(f"  {label}: crop and background removal done -> {nobg_path}")
 
     del remover
     if torch.cuda.is_available():
@@ -1976,7 +1976,7 @@ def crop_and_remove_background(
 
 
 # ============================================================================
-# 步骤四：多模态调用生成 SVG
+# Step 4: Multimodal call to generate SVG
 # ============================================================================
 
 def generate_svg_template(
@@ -1992,38 +1992,38 @@ def generate_svg_template(
     no_icon_mode: bool = False,
 ) -> str:
     """
-    使用多模态 LLM 生成 SVG 代码
+    Generate SVG code using multimodal LLM
 
     Args:
-        placeholder_mode: 占位符模式
-            - "none": 无特殊样式
-            - "box": 传入 boxlib 坐标
-            - "label": 灰色填充+黑色边框+序号标签（推荐）
+        placeholder_mode: placeholder mode
+            - "none": no special style
+            - "box": pass boxlib coordinates
+            - "label": gray fill+black border+numbered labels (recommended)
     """
     print("\n" + "=" * 60)
-    print("步骤四：多模态调用生成 SVG")
+    print("Step 4: Multimodal call to generate SVG")
     print("=" * 60)
     print(f"Provider: {provider}")
-    print(f"模型: {model}")
-    print(f"占位符模式: {placeholder_mode}")
+    print(f"Model: {model}")
+    print(f"Placeholder mode: {placeholder_mode}")
     if no_icon_mode:
-        print("无图标模式: 启用纯 SVG 复现回退")
+        print("No-icon mode: enabling pure SVG reproduction fallback")
 
     figure_img = Image.open(figure_path)
     samed_img = Image.open(samed_path)
 
     figure_width, figure_height = figure_img.size
-    print(f"原图尺寸: {figure_width} x {figure_height}")
+    print(f"Original image size: {figure_width} x {figure_height}")
 
     if no_icon_mode:
-        prompt_text = f"""编写 SVG 代码来尽可能像素级复现这张图片。
+        prompt_text = f"""Write SVG code to reproduce this image as closely as possible at the pixel level.
 
-当前 SAM3 没有检测到任何有效图标，因此这是一个无图标回退模式任务：
-- 不要添加任何灰色矩形占位符
-- 不要添加任何 <AF>01 / <AF>02 标签
-- 不要凭空生成图标框、占位组或额外装饰
-- 所有可见内容都应直接用 SVG 元素复现
-- 优先保持整体布局、文字、箭头、线条、边框和配色与原图一致
+SAM3 did not detect any valid icons, so this is a no-icon fallback mode task:
+- Do not add any gray rectangle placeholders
+- Do not add any <AF>01 / <AF>02 labels
+- Do not generate phantom icon boxes, placeholder groups or extra decorations
+- All visible content should be reproduced directly using SVG elements
+- Prioritize matching the overall layout, text, arrows, lines, borders, and colors of the original image
 
 CRITICAL DIMENSION REQUIREMENT:
 - The original image has dimensions: {figure_width} x {figure_height} pixels
@@ -2038,8 +2038,8 @@ Image reference notes:
 
 Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
     else:
-        # 基础 prompt
-        base_prompt = f"""编写svg代码来实现像素级别的复现这张图片（除了图标用相同大小的矩形占位符填充之外其他文字和组件(尤其是箭头样式)都要保持一致（即灰色矩形覆盖的内容就是图标））
+        # Base prompt
+        base_prompt = f"""Write SVG code to reproduce this image at pixel level (all text and components (especially arrow styles) must match, except icons which should be replaced by same-sized rectangle placeholders (i.e. the content covered by gray rectangles is the icon area))
 
 CRITICAL DIMENSION REQUIREMENT:
 - The original image has dimensions: {figure_width} x {figure_height} pixels
@@ -2050,7 +2050,7 @@ CRITICAL DIMENSION REQUIREMENT:
 """
 
     if not no_icon_mode and placeholder_mode == "box":
-        # box 模式：传入 boxlib 坐标
+        # box mode: pass boxlib coordinates
         with open(boxlib_path, 'r', encoding='utf-8') as f:
             boxlib_content = f.read()
 
@@ -2063,7 +2063,7 @@ Use these coordinates to accurately position your icon placeholders in the SVG.
 Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
 
     elif not no_icon_mode and placeholder_mode == "label":
-        # label 模式：要求占位符样式与 samed.png 一致
+        # label mode: require placeholder style to match samed.png
         prompt_text = base_prompt + """
 PLACEHOLDER STYLE REQUIREMENT:
 Look at the second image (samed.png) - each icon area is marked with a gray rectangle (#808080), black border, and a centered label like <AF>01, <AF>02, etc.
@@ -2081,13 +2081,13 @@ Example placeholder structure:
 
 Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
 
-    elif not no_icon_mode:  # none 模式
+    elif not no_icon_mode:  # none mode
         prompt_text = base_prompt + """
 Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do not include any explanation or markdown formatting."""
 
     contents = [prompt_text, figure_img, samed_img]
 
-    print(f"发送多模态请求到: {base_url}")
+    print(f"Sending multimodal request to: {base_url}")
 
     content = call_llm_multimodal(
         contents=contents,
@@ -2100,16 +2100,16 @@ Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do n
 
     if not content:
         raise Exception(
-            f"API 响应中没有内容（provider={provider}, model={model}）。"
-            "如果是 OpenRouter，可尝试增大 OPENROUTER_MULTIMODAL_RETRIES 后重试。"
+            f"No content in API response (provider={provider}, model={model}).",
+            "If using OpenRouter, try increasing OPENROUTER_MULTIMODAL_RETRIES and retrying.",
         )
 
     svg_code = extract_svg_code(content)
 
     if not svg_code:
-        raise Exception('无法从响应中提取 SVG 代码')
+        raise Exception('Could not extract SVG code from response')
 
-    # 步骤 4.5：SVG 语法验证和修复
+    # Step 4.5: SVG syntax validation and repair
     svg_code = check_and_fix_svg(
         svg_code=svg_code,
         api_key=api_key,
@@ -2124,12 +2124,12 @@ Please output ONLY the SVG code, starting with <svg and ending with </svg>. Do n
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(svg_code)
 
-    print(f"SVG 模板已保存: {output_path}")
+    print(f"SVG template saved: {output_path}")
     return str(output_path)
 
 
 def extract_svg_code(content: str) -> Optional[str]:
-    """从响应内容中提取 SVG 代码"""
+    """Extract SVG code from response content"""
     pattern = r'(<svg[\s\S]*?</svg>)'
     match = re.search(pattern, content, re.IGNORECASE)
     if match:
@@ -2149,35 +2149,35 @@ def extract_svg_code(content: str) -> Optional[str]:
 
 
 # ============================================================================
-# 步骤 4.5：SVG 语法验证和修复
+# Step 4.5: SVG syntax validation and repair
 # ============================================================================
 
 def validate_svg_syntax(svg_code: str) -> tuple[bool, list[str]]:
-    """使用 lxml 解析验证 SVG 语法"""
+    """Validate SVG syntax using lxml"""
     try:
         from lxml import etree
         etree.fromstring(svg_code.encode('utf-8'))
         return True, []
     except ImportError:
-        print("  警告: lxml 未安装，使用内置 xml.etree 进行验证")
+        print("  Warning: lxml not installed, using built-in xml.etree for validation")
         try:
             import xml.etree.ElementTree as ET
             ET.fromstring(svg_code)
             return True, []
         except ET.ParseError as e:
-            return False, [f"XML 解析错误: {str(e)}"]
+            return False, [f"XML parse error: {str(e)}"]
     except Exception as e:
         from lxml import etree
         if isinstance(e, etree.XMLSyntaxError):
             errors = []
             error_log = e.error_log
             for error in error_log:
-                errors.append(f"行 {error.line}, 列 {error.column}: {error.message}")
+                errors.append(f"Line {error.line}, col {error.column}: {error.message}")
             if not errors:
-                errors.append(f"行 {e.lineno}, 列 {e.offset}: {e.msg}")
+                errors.append(f"Line {e.lineno}, col {e.offset}: {e.msg}")
             return False, errors
         else:
-            return False, [f"解析错误: {str(e)}"]
+            return False, [f"Parse error: {str(e)}"]
 
 
 def fix_svg_with_llm(
@@ -2189,9 +2189,9 @@ def fix_svg_with_llm(
     provider: ProviderType,
     max_retries: int = 3,
 ) -> str:
-    """使用 LLM 修复 SVG 语法错误"""
+    """Fix SVG syntax errors using LLM"""
     print("\n  " + "-" * 50)
-    print("  检测到 SVG 语法错误，调用 LLM 修复...")
+    print("  SVG syntax errors detected, calling LLM to repair...")
     print("  " + "-" * 50)
     for err in errors:
         print(f"    {err}")
@@ -2200,7 +2200,7 @@ def fix_svg_with_llm(
     current_errors = errors
 
     for attempt in range(max_retries):
-        print(f"\n  修复尝试 {attempt + 1}/{max_retries}...")
+        print(f"\n  Repair attempt {attempt + 1}/{max_retries}...")
 
         error_list = "\n".join([f"  - {err}" for err in current_errors])
         prompt = f"""The following SVG code has XML syntax errors detected by an XML parser. Please fix ALL the errors and return valid SVG code.
@@ -2232,34 +2232,34 @@ IMPORTANT INSTRUCTIONS:
             )
 
             if not content:
-                print("    响应为空")
+                print("    Response is empty")
                 continue
 
             fixed_svg = extract_svg_code(content)
 
             if not fixed_svg:
-                print("    无法从响应中提取 SVG 代码")
+                print("    Could not extract SVG code from response")
                 continue
 
             is_valid, new_errors = validate_svg_syntax(fixed_svg)
 
             if is_valid:
-                print("    修复成功！SVG 语法验证通过")
+                print("    Repair successful! SVG syntax validated")
                 return fixed_svg
             else:
-                print(f"    修复后仍有 {len(new_errors)} 个错误:")
+                print(f"    Still {len(new_errors)} errors after repair:")
                 for err in new_errors[:3]:
                     print(f"      {err}")
                 if len(new_errors) > 3:
-                    print(f"      ... 还有 {len(new_errors) - 3} 个错误")
+                    print(f"      ... and {len(new_errors) - 3} more errors")
                 current_svg = fixed_svg
                 current_errors = new_errors
 
         except Exception as e:
-            print(f"    修复过程出错: {e}")
+            print(f"    Error during repair: {e}")
             continue
 
-    print(f"  警告: 达到最大重试次数 ({max_retries})，返回最后一次的 SVG 代码")
+    print(f"  Warning: max retries reached ({max_retries}), returning last SVG code")
     return current_svg
 
 
@@ -2270,18 +2270,18 @@ def check_and_fix_svg(
     base_url: str,
     provider: ProviderType,
 ) -> str:
-    """检查 SVG 语法并在需要时调用 LLM 修复"""
+    """Check SVG syntax and call LLM to repair if needed"""
     print("\n" + "-" * 50)
-    print("步骤 4.5：SVG 语法验证（使用 lxml XML 解析器）")
+    print("Step 4.5: SVG syntax validation (using lxml XML parser)")
     print("-" * 50)
 
     is_valid, errors = validate_svg_syntax(svg_code)
 
     if is_valid:
-        print("  SVG 语法验证通过！")
+        print("  SVG syntax validation passed!")
         return svg_code
     else:
-        print(f"  发现 {len(errors)} 个语法错误")
+        print(f"  Found {len(errors)} syntax errors")
         fixed_svg = fix_svg_with_llm(
             svg_code=svg_code,
             errors=errors,
@@ -2294,11 +2294,11 @@ def check_and_fix_svg(
 
 
 # ============================================================================
-# 步骤 4.7：坐标系对齐
+# Step 4.7: Coordinate system alignment
 # ============================================================================
 
 def get_svg_dimensions(svg_code: str) -> tuple[Optional[float], Optional[float]]:
-    """从 SVG 代码中提取坐标系尺寸"""
+    """Extract coordinate system dimensions from SVG code"""
     viewbox_pattern = r'viewBox=["\']([^"\']+)["\']'
     viewbox_match = re.search(viewbox_pattern, svg_code, re.IGNORECASE)
 
@@ -2341,14 +2341,14 @@ def calculate_scale_factors(
     svg_width: float,
     svg_height: float,
 ) -> tuple[float, float]:
-    """计算从 figure.png 像素坐标到 SVG 坐标的缩放因子"""
+    """Calculate scale factors from figure.png pixel coordinates to SVG coordinates"""
     scale_x = svg_width / figure_width
     scale_y = svg_height / figure_height
     return scale_x, scale_y
 
 
 # ============================================================================
-# 步骤五：图标替换到 SVG（支持序号匹配）
+# Step 5: Replace icons into SVG (supports label matching)
 # ============================================================================
 
 def replace_icons_in_svg(
@@ -2359,23 +2359,23 @@ def replace_icons_in_svg(
     match_by_label: bool = True,
 ) -> str:
     """
-    将透明背景图标替换到 SVG 中的占位符
+    Replace transparent-background icons into SVG placeholders
 
     Args:
-        template_svg_path: SVG 模板路径
-        icon_infos: 图标信息列表
-        output_path: 输出路径
-        scale_factors: 坐标缩放因子
-        match_by_label: 是否使用序号匹配（label 模式）
+        template_svg_path: SVG template path
+        icon_infos: icon info list
+        output_path: output path
+        scale_factors: coordinate scale factors
+        match_by_label: whether to use label matching (label mode)
     """
     print("\n" + "=" * 60)
-    print("步骤五：图标替换到 SVG")
+    print("Step 5: Replacing icons into SVG")
     print("=" * 60)
-    print(f"匹配模式: {'序号匹配' if match_by_label else '坐标匹配'}")
+    print(f"Match mode: {'label matching' if match_by_label else 'coordinate matching'}")
 
     scale_x, scale_y = scale_factors
     if scale_x != 1.0 or scale_y != 1.0:
-        print(f"应用坐标缩放: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+        print(f"Applying coordinate scaling: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
 
     with open(template_svg_path, 'r', encoding='utf-8') as f:
         svg_content = f.read()
@@ -2385,7 +2385,7 @@ def replace_icons_in_svg(
         label_clean = icon_info.get("label_clean", label.replace("<", "").replace(">", ""))
         nobg_path = icon_info["nobg_path"]
 
-        # 读取图标并转为 base64
+        # Read icon and convert to base64
         icon_img = Image.open(nobg_path)
         buf = io.BytesIO()
         icon_img.save(buf, format="PNG")
@@ -2394,31 +2394,31 @@ def replace_icons_in_svg(
         replaced = False
 
         if match_by_label and label:
-            # 方式1：查找 id="AF01" 的 <g> 元素
+            # Method 1: find <g> element with id="AF01"
             g_pattern = rf'<g[^>]*\bid=["\']?{re.escape(label_clean)}["\']?[^>]*>[\s\S]*?</g>'
             g_match = re.search(g_pattern, svg_content, re.IGNORECASE)
 
             if g_match:
                 g_content = g_match.group(0)
 
-                # 提取 <g> 元素的 transform="translate(x, y)" （如果存在）
-                # 这处理 LLM 生成 <g id="AF01" transform="translate(100, 50)"><rect x="0" y="0" ...> 的情况
+                # Extract transform="translate(x, y)" from <g> element (if present)
+                # This handles the case where LLM generates <g id="AF01" transform="translate(100, 50)"><rect x="0" y="0" ...>
                 g_tag_match = re.match(r'<g[^>]*>', g_content, re.IGNORECASE)
                 translate_x, translate_y = 0.0, 0.0
                 if g_tag_match:
                     g_tag = g_tag_match.group(0)
-                    # 匹配 transform="translate(100, 50)" 或 transform="translate(100 50)"
+                    # Match transform="translate(100, 50)" or transform="translate(100 50)"
                     transform_pattern = r'transform=["\'][^"\']*translate\s*\(\s*([\d.-]+)[\s,]+([\d.-]+)\s*\)'
                     transform_match = re.search(transform_pattern, g_tag, re.IGNORECASE)
                     if transform_match:
                         translate_x = float(transform_match.group(1))
                         translate_y = float(transform_match.group(2))
 
-                # 从 <g> 中提取 <rect> 的尺寸
+                # Extract <rect> dimensions from <g>
                 rect_patterns = [
                     # x="100" y="50" width="80" height="80"
                     r'<rect[^>]*\bx=["\']?([\d.]+)["\']?[^>]*\by=["\']?([\d.]+)["\']?[^>]*\bwidth=["\']?([\d.]+)["\']?[^>]*\bheight=["\']?([\d.]+)["\']?',
-                    # width="80" height="80" x="100" y="50" (属性顺序不同)
+                    # width="80" height="80" x="100" y="50" (attribute order may vary)
                     r'<rect[^>]*\bwidth=["\']?([\d.]+)["\']?[^>]*\bheight=["\']?([\d.]+)["\']?[^>]*\bx=["\']?([\d.]+)["\']?[^>]*\by=["\']?([\d.]+)["\']?',
                 ]
 
@@ -2428,7 +2428,7 @@ def replace_icons_in_svg(
                     if rect_match:
                         groups = rect_match.groups()
                         if len(groups) == 4:
-                            if 'width' in rp[:50]:  # 第二种模式
+                            if 'width' in rp[:50]:  # second pattern
                                 width, height, x, y = groups
                             else:
                                 x, y, width, height = groups
@@ -2441,24 +2441,24 @@ def replace_icons_in_svg(
                             break
 
                 if rect_info:
-                    # 将 <g> 的 transform translate 值加到 rect 坐标上
+                    # Add <g> transform translate values to rect coordinates
                     x = rect_info['x'] + translate_x
                     y = rect_info['y'] + translate_y
                     width, height = rect_info['width'], rect_info['height']
 
-                    # 如果应用了 transform，输出提示
+                    # Print notice if transform was applied
                     if translate_x != 0 or translate_y != 0:
-                        print(f"  {label}: 检测到 <g> transform: translate({translate_x}, {translate_y})")
+                        print(f"  {label}: detected <g> transform: translate({translate_x}, {translate_y})")
 
-                    # 创建 image 标签替换整个 <g>
+                    # Create image tag to replace entire <g>
                     image_tag = f'<image id="icon_{label_clean}" x="{x}" y="{y}" width="{width}" height="{height}" href="data:image/png;base64,{icon_b64}" preserveAspectRatio="xMidYMid meet"/>'
                     svg_content = svg_content.replace(g_content, image_tag)
-                    print(f"  {label}: 替换成功 (序号匹配 <g>) at ({x}, {y}) size {width}x{height}")
+                    print(f"  {label}: replaced successfully (label match <g>) at ({x}, {y}) size {width}x{height}")
                     replaced = True
 
-            # 方式2：查找包含 label 文本的 <text> 元素附近的 <rect>
+            # Method 2: find <rect> near <text> element containing label text
             if not replaced:
-                # 查找包含 <AF>01 或 &lt;AF&gt;01 的文本
+                # Find text containing <AF>01 or &lt;AF&gt;01
                 text_patterns = [
                     rf'<text[^>]*>[^<]*{re.escape(label)}[^<]*</text>',
                     rf'<text[^>]*>[^<]*&lt;AF&gt;{label_clean[2:]}[^<]*</text>',
@@ -2467,17 +2467,17 @@ def replace_icons_in_svg(
                 for tp in text_patterns:
                     text_match = re.search(tp, svg_content, re.IGNORECASE)
                     if text_match:
-                        # 找到文本，向前查找最近的 <rect>
+                        # Found text, search backward for nearest <rect>
                         text_pos = text_match.start()
                         preceding_svg = svg_content[:text_pos]
 
-                        # 查找最后一个 <rect>
+                        # Find the last <rect>
                         rect_matches = list(re.finditer(r'<rect[^>]*/?\s*>', preceding_svg, re.IGNORECASE))
                         if rect_matches:
                             last_rect = rect_matches[-1]
                             rect_content = last_rect.group(0)
 
-                            # 提取 rect 的属性
+                            # Extract rect attributes
                             x_match = re.search(r'\bx=["\']?([\d.]+)', rect_content)
                             y_match = re.search(r'\by=["\']?([\d.]+)', rect_content)
                             w_match = re.search(r'\bwidth=["\']?([\d.]+)', rect_content)
@@ -2489,19 +2489,19 @@ def replace_icons_in_svg(
                                 width = float(w_match.group(1))
                                 height = float(h_match.group(1))
 
-                                # 替换 rect 和 text
+                                # Replace rect and text
                                 image_tag = f'<image id="icon_{label_clean}" x="{x}" y="{y}" width="{width}" height="{height}" href="data:image/png;base64,{icon_b64}" preserveAspectRatio="xMidYMid meet"/>'
 
-                                # 删除 text
+                                # Delete text
                                 svg_content = svg_content.replace(text_match.group(0), '')
-                                # 替换 rect
+                                # Replace rect
                                 svg_content = svg_content.replace(rect_content, image_tag, 1)
 
-                                print(f"  {label}: 替换成功 (序号匹配 <text>) at ({x}, {y}) size {width}x{height}")
+                                print(f"  {label}: replaced successfully (label match <text>) at ({x}, {y}) size {width}x{height}")
                                 replaced = True
                                 break
 
-        # 回退：使用坐标匹配
+        # Fallback: use coordinate matching
         if not replaced:
             orig_x1, orig_y1 = icon_info["x1"], icon_info["y1"]
             orig_width, orig_height = icon_info["width"], icon_info["height"]
@@ -2515,14 +2515,14 @@ def replace_icons_in_svg(
 
             x1_int, y1_int = int(round(x1)), int(round(y1))
 
-            # 精确匹配
+            # Exact match
             rect_pattern = rf'<rect[^>]*x=["\']?{x1_int}(?:\.0)?["\']?[^>]*y=["\']?{y1_int}(?:\.0)?["\']?[^>]*/?\s*>'
             if re.search(rect_pattern, svg_content):
                 svg_content = re.sub(rect_pattern, image_tag, svg_content, count=1)
-                print(f"  {label}: 替换成功 (坐标精确匹配) at ({x1:.1f}, {y1:.1f})")
+                print(f"  {label}: replaced successfully (exact coordinate match) at ({x1:.1f}, {y1:.1f})")
                 replaced = True
             else:
-                # 近似匹配
+                # Approximate match
                 tolerance = 10
                 found = False
                 for dx in range(-tolerance, tolerance+1, 2):
@@ -2532,7 +2532,7 @@ def replace_icons_in_svg(
                         rect_pattern = rf'<rect[^>]*x=["\']?{search_x}(?:\.0)?["\']?[^>]*y=["\']?{search_y}(?:\.0)?["\']?[^>]*(?:fill=["\']?(?:#[0-9A-Fa-f]{{3,6}}|gray|grey)["\']?|stroke=["\']?(?:black|#000|#000000)["\']?)[^>]*/?\s*>'
                         if re.search(rect_pattern, svg_content, re.IGNORECASE):
                             svg_content = re.sub(rect_pattern, image_tag, svg_content, count=1, flags=re.IGNORECASE)
-                            print(f"  {label}: 替换成功 (坐标近似匹配) at ({x1:.1f}, {y1:.1f})")
+                            print(f"  {label}: replaced successfully (approximate coordinate match) at ({x1:.1f}, {y1:.1f})")
                             found = True
                             replaced = True
                             break
@@ -2540,7 +2540,7 @@ def replace_icons_in_svg(
                         break
 
         if not replaced:
-            # 追加到 SVG 末尾
+            # Append to end of SVG
             orig_x1, orig_y1 = icon_info["x1"], icon_info["y1"]
             orig_width, orig_height = icon_info["width"], icon_info["height"]
             x1 = orig_x1 * scale_x
@@ -2550,7 +2550,7 @@ def replace_icons_in_svg(
 
             image_tag = f'<image id="icon_{label_clean}" x="{x1:.1f}" y="{y1:.1f}" width="{width:.1f}" height="{height:.1f}" href="data:image/png;base64,{icon_b64}" preserveAspectRatio="xMidYMid meet"/>'
             svg_content = svg_content.replace('</svg>', f'  {image_tag}\n</svg>')
-            print(f"  {label}: 追加到 SVG at ({x1:.1f}, {y1:.1f}) (未找到匹配的占位符)")
+            print(f"  {label}: appended to SVG at ({x1:.1f}, {y1:.1f}) (no matching placeholder found)")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2558,47 +2558,47 @@ def replace_icons_in_svg(
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(svg_content)
 
-    print(f"最终 SVG 已保存: {output_path}")
+    print(f"Final SVG saved: {output_path}")
     return str(output_path)
 
 
 # ============================================================================
-# 步骤 4.6：LLM 优化 SVG
+# Step 4.6: LLM SVG optimization
 # ============================================================================
 
 def count_base64_images(svg_code: str) -> int:
-    """统计 SVG 中嵌入的 base64 图片数量"""
+    """Count embedded base64 images in SVG"""
     pattern = r'(?:href|xlink:href)=["\']data:image/[^;]+;base64,[A-Za-z0-9+/=]+'
     matches = re.findall(pattern, svg_code)
     return len(matches)
 
 
 def validate_base64_images(svg_code: str, expected_count: int) -> tuple[bool, str]:
-    """验证 SVG 中的 base64 图片是否完整"""
+    """Verify that base64 images in SVG are complete"""
     actual_count = count_base64_images(svg_code)
 
     if actual_count < expected_count:
-        return False, f"base64 图片数量不足: 期望 {expected_count}, 实际 {actual_count}"
+        return False, f"Insufficient base64 images: expected {expected_count}, actual {actual_count}"
 
     pattern = r'data:image/[^;]+;base64,([A-Za-z0-9+/=]+)'
     for match in re.finditer(pattern, svg_code):
         b64_data = match.group(1)
         if len(b64_data) % 4 != 0:
-            return False, f"发现截断的 base64 数据（长度 {len(b64_data)} 不是 4 的倍数）"
+            return False, f"Truncated base64 data found (length {len(b64_data)} is not a multiple of 4)"
         if len(b64_data) < 100:
-            return False, f"发现过短的 base64 数据（长度 {len(b64_data)}），可能被截断"
+            return False, f"Suspiciously short base64 data found (length {len(b64_data)}), possibly truncated"
 
-    return True, f"base64 图片验证通过: {actual_count} 张图片"
+    return True, f"base64 image validation passed: {actual_count} images"
 
 
 def svg_to_png(svg_path: str, output_path: str, scale: float = 1.0) -> Optional[str]:
-    """将 SVG 转换为 PNG"""
+    """Convert SVG to PNG"""
     try:
         import cairosvg
         cairosvg.svg2png(url=svg_path, write_to=output_path, scale=scale)
         return output_path
     except ImportError:
-        print("  警告: cairosvg 未安装，尝试使用其他方法")
+        print("  Warning: cairosvg not installed, trying alternative methods")
         try:
             from svglib.svglib import svg2rlg
             from reportlab.graphics import renderPM
@@ -2606,13 +2606,13 @@ def svg_to_png(svg_path: str, output_path: str, scale: float = 1.0) -> Optional[
             renderPM.drawToFile(drawing, output_path, fmt="PNG")
             return output_path
         except ImportError:
-            print("  警告: svglib 也未安装，无法转换 SVG 到 PNG")
+            print("  Warning: svglib also not installed, cannot convert SVG to PNG")
             return None
         except Exception as e:
-            print(f"  警告: svglib 转换失败: {e}")
+            print(f"  Warning: svglib conversion failed: {e}")
             return None
     except Exception as e:
-        print(f"  警告: cairosvg 转换失败: {e}")
+        print(f"  Warning: cairosvg conversion failed: {e}")
         return None
 
 
@@ -2630,39 +2630,39 @@ def optimize_svg_with_llm(
     no_icon_mode: bool = False,
 ) -> str:
     """
-    使用 LLM 优化 SVG，使其与原图更加对齐
+    Optimize SVG using LLM to better align with the original image
 
     Args:
-        figure_path: 原图路径
-        samed_path: 标记图路径
-        final_svg_path: 输入 SVG 路径
-        output_path: 输出 SVG 路径
-        api_key: API Key
-        model: 模型名称
+        figure_path: original image path
+        samed_path: labeled image path
+        final_svg_path: input SVG path
+        output_path: output SVG path
+        api_key: API key
+        model: model name
         base_url: API base URL
-        provider: API 提供商
-        max_iterations: 最大迭代次数（0 表示跳过优化）
-        skip_base64_validation: 是否跳过 base64 图片验证
+        provider: API provider
+        max_iterations: maximum iterations (0 = skip optimization)
+        skip_base64_validation: whether to skip base64 image validation
 
     Returns:
-        优化后的 SVG 路径
+        path to optimized SVG
     """
     print("\n" + "=" * 60)
-    print("步骤 4.6：LLM 优化 SVG（位置和样式对齐）")
+    print("Step 4.6: LLM SVG optimization (position and style alignment)")
     print("=" * 60)
     print(f"Provider: {provider}")
-    print(f"模型: {model}")
-    print(f"最大迭代次数: {max_iterations}")
+    print(f"Model: {model}")
+    print(f"Max iterations: {max_iterations}")
     if no_icon_mode:
-        print("无图标模式: 优化时禁止引入占位框")
+        print("No-icon mode: placeholder boxes are forbidden during optimization")
 
-    # 如果迭代次数为 0，直接复制文件并跳过优化
+    # If iterations=0, copy file directly and skip optimization
     if max_iterations == 0:
-        print("  迭代次数为 0，跳过 LLM 优化")
+        print("  Iterations = 0, skipping LLM optimization")
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(final_svg_path, output_path)
-        print(f"  直接复制模板: {final_svg_path} -> {output_path}")
+        print(f"  Copying template directly: {final_svg_path} -> {output_path}")
         return str(output_path)
 
     with open(final_svg_path, 'r', encoding='utf-8') as f:
@@ -2673,12 +2673,12 @@ def optimize_svg_with_llm(
     original_image_count = 0
     if not skip_base64_validation:
         original_image_count = count_base64_images(current_svg)
-        print(f"原始 SVG 包含 {original_image_count} 张嵌入图片")
+        print(f"Original SVG contains {original_image_count} embedded images")
     else:
-        print("跳过 base64 图片验证（模板 SVG）")
+        print("Skipping base64 image validation (template SVG)")
 
     for iteration in range(max_iterations):
-        print(f"\n  优化迭代 {iteration + 1}/{max_iterations}")
+        print(f"\n  Optimization iteration {iteration + 1}/{max_iterations}")
         print("  " + "-" * 50)
 
         current_svg_path = output_dir / f"temp_svg_iter_{iteration}.svg"
@@ -2690,7 +2690,7 @@ def optimize_svg_with_llm(
         png_result = svg_to_png(str(current_svg_path), str(current_png_path))
 
         if png_result is None:
-            print("  无法将 SVG 转换为 PNG，跳过优化")
+            print("  Cannot convert SVG to PNG, skipping optimization")
             break
 
         figure_img = Image.open(figure_path)
@@ -2735,17 +2735,17 @@ I'm providing you with 4 inputs:
 
 Please carefully compare and check the following **TWO MAJOR ASPECTS with EIGHT KEY POINTS**:
 
-## ASPECT 1: POSITION (位置)
-1. **Icons (图标)**: Are icon placeholder positions matching the original?
-2. **Text (文字)**: Are text elements positioned correctly?
-3. **Arrows (箭头)**: Are arrows starting/ending at correct positions?
-4. **Lines/Borders (线条)**: Are lines and borders aligned properly?
+## ASPECT 1: POSITION
+1. **Icons**: Are icon placeholder positions matching the original?
+2. **Text**: Are text elements positioned correctly?
+3. **Arrows**: Are arrows starting/ending at correct positions?
+4. **Lines/Borders**: Are lines and borders aligned properly?
 
-## ASPECT 2: STYLE (样式)
-5. **Icons (图标)**: Icon placeholder sizes, proportions (must have gray fill #808080, black border, and centered label)
-6. **Text (文字)**: Font sizes, colors, weights
-7. **Arrows (箭头)**: Arrow styles, thicknesses, colors
-8. **Lines/Borders (线条)**: Line styles, colors, stroke widths
+## ASPECT 2: STYLE
+5. **Icons**: Icon placeholder sizes, proportions (must have gray fill #808080, black border, and centered label)
+6. **Text**: Font sizes, colors, weights
+7. **Arrows**: Arrow styles, thicknesses, colors
+8. **Lines/Borders**: Line styles, colors, stroke widths
 
 **CURRENT SVG CODE:**
 ```xml
@@ -2762,7 +2762,7 @@ Please carefully compare and check the following **TWO MAJOR ASPECTS with EIGHT 
         contents = [prompt, figure_img, samed_img, current_png_img]
 
         try:
-            print("  发送优化请求...")
+            print("  Sending optimization request...")
             content = call_llm_multimodal(
                 contents=contents,
                 api_key=api_key,
@@ -2774,19 +2774,19 @@ Please carefully compare and check the following **TWO MAJOR ASPECTS with EIGHT 
             )
 
             if not content:
-                print("  响应为空")
+                print("  Response is empty")
                 continue
 
             optimized_svg = extract_svg_code(content)
 
             if not optimized_svg:
-                print("  无法从响应中提取 SVG 代码")
+                print("  Could not extract SVG code from response")
                 continue
 
             is_valid, errors = validate_svg_syntax(optimized_svg)
 
             if not is_valid:
-                print(f"  优化后的 SVG 有语法错误，尝试修复...")
+                print(f"  Optimized SVG has syntax errors, attempting repair...")
                 optimized_svg = fix_svg_with_llm(
                     svg_code=optimized_svg,
                     errors=errors,
@@ -2799,16 +2799,16 @@ Please carefully compare and check the following **TWO MAJOR ASPECTS with EIGHT 
             if not skip_base64_validation:
                 images_valid, images_msg = validate_base64_images(optimized_svg, original_image_count)
                 if not images_valid:
-                    print(f"  警告: {images_msg}")
-                    print("  拒绝此次优化，保留上一版本 SVG")
+                    print(f"  Warning: {images_msg}")
+                    print("  Rejecting this optimization, keeping previous SVG version")
                     continue
                 print(f"  {images_msg}")
 
             current_svg = optimized_svg
-            print("  优化迭代完成")
+            print("  Optimization iteration complete")
 
         except Exception as e:
-            print(f"  优化过程出错: {e}")
+            print(f"  Error during optimization: {e}")
             continue
 
         try:
@@ -2825,14 +2825,14 @@ Please carefully compare and check the following **TWO MAJOR ASPECTS with EIGHT 
 
     final_png_path = output_path.with_suffix('.png')
     svg_to_png(str(output_path), str(final_png_path))
-    print(f"\n  优化后的 SVG 已保存: {output_path}")
-    print(f"  PNG 预览已保存: {final_png_path}")
+    print(f"\n  Optimized SVG saved: {output_path}")
+    print(f"  PNG preview saved: {final_png_path}")
 
     return str(output_path)
 
 
 # ============================================================================
-# 主函数：完整流程
+# Main function: full pipeline
 # ============================================================================
 
 def method_to_svg(
@@ -2856,37 +2856,37 @@ def method_to_svg(
     image_size: str = GEMINI_DEFAULT_IMAGE_SIZE,
 ) -> dict:
     """
-    完整流程：Paper Method → SVG with Icons
+    Full pipeline: Paper Method → SVG with Icons
 
     Args:
-        method_text: Paper method 文本内容
-        output_dir: 输出目录
-        api_key: API Key
+        method_text: Paper method text content
+        output_dir: output directory
+        api_key: API key
         base_url: API base URL
-        provider: API 提供商
-        image_gen_model: 生图模型
-        svg_gen_model: SVG 生成模型
-        sam_prompts: SAM3 文本提示，支持逗号分隔的多个prompt（如 "icon,diagram,arrow"）
-        min_score: SAM3 最低置信度
-        sam_backend: SAM3 后端（local/fal/roboflow/api）
-        sam_api_key: SAM3 API Key（api 模式使用）
-        sam_max_masks: SAM3 API 最大 masks 数（api 模式使用）
-        rmbg_model_path: RMBG 模型路径
-        stop_after: 执行到指定步骤后停止
-        placeholder_mode: 占位符模式
-            - "none": 无特殊样式
-            - "box": 传入 boxlib 坐标
-            - "label": 灰色填充+黑色边框+序号标签（推荐）
-        optimize_iterations: 步骤 4.6 优化迭代次数（0 表示跳过优化）
-        merge_threshold: Box合并阈值，重叠比例超过此值则合并（0表示不合并，默认0.9）
+        provider: API provider
+        image_gen_model: image generation model
+        svg_gen_model: SVG generation model
+        sam_prompts: SAM3 text prompts, supports comma-separated multiple prompts (e.g. "icon,diagram,arrow")
+        min_score: SAM3 minimum confidence
+        sam_backend: SAM3 backend (local/fal/roboflow/api)
+        sam_api_key: SAM3 API key (for api mode)
+        sam_max_masks: SAM3 API max masks count (for api mode)
+        rmbg_model_path: RMBG model path
+        stop_after: stop after specified step
+        placeholder_mode: placeholder mode
+            - "none": no special style
+            - "box": pass boxlib coordinates
+            - "label": gray fill+black border+numbered labels (recommended)
+        optimize_iterations: step 4.6 optimization iteration count (0 = skip)
+        merge_threshold: box merge threshold, boxes with overlap above this value are merged (0=no merge, default 0.9)
 
     Returns:
-        结果字典
+        result dict
     """
     if not api_key:
-        raise ValueError("必须提供 api_key")
+        raise ValueError("api_key is required")
 
-    # 获取默认配置
+    # Get default configuration
     config = PROVIDER_CONFIGS[provider]
     if base_url is None:
         base_url = config["base_url"]
@@ -2899,27 +2899,27 @@ def method_to_svg(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n" + "=" * 60)
-    print("Paper Method 到 SVG 图标替换流程 (Label 模式增强版 + Box合并)")
+    print("Paper Method to SVG icon replacement pipeline (Label mode enhanced + Box merge)")
     print("=" * 60)
     print(f"Provider: {provider}")
-    print(f"输出目录: {output_dir}")
-    print(f"生图模型: {image_gen_model}")
-    print(f"SVG模型: {svg_gen_model}")
-    print(f"SAM提示词: {sam_prompts}")
-    print(f"最低置信度: {min_score}")
+    print(f"Output directory: {output_dir}")
+    print(f"Image gen model: {image_gen_model}")
+    print(f"SVG model: {svg_gen_model}")
+    print(f"SAM prompts: {sam_prompts}")
+    print(f"Min confidence: {min_score}")
     sam_backend_value = "fal" if sam_backend == "api" else sam_backend
-    print(f"SAM后端: {sam_backend_value}")
+    print(f"SAM backend: {sam_backend_value}")
     if sam_backend_value == "fal":
         print(f"SAM3 API max_masks: {sam_max_masks}")
-    print(f"执行到步骤: {stop_after}")
-    print(f"占位符模式: {placeholder_mode}")
-    print(f"优化迭代次数: {optimize_iterations}")
-    print(f"Box合并阈值: {merge_threshold}")
+    print(f"Run until step: {stop_after}")
+    print(f"Placeholder mode: {placeholder_mode}")
+    print(f"Optimization iterations: {optimize_iterations}")
+    print(f"Box merge threshold: {merge_threshold}")
     if provider == "gemini":
-        print(f"生图分辨率: {image_size}")
+        print(f"Image resolution: {image_size}")
     print("=" * 60)
 
-    # 步骤一：生成图片
+    # Step 1: generate image
     figure_path = output_dir / "figure.png"
     generate_figure_from_method(
         method_text=method_text,
@@ -2933,7 +2933,7 @@ def method_to_svg(
 
     if stop_after == 1:
         print("\n" + "=" * 60)
-        print("已在步骤 1 后停止")
+        print("Stopped after step 1")
         print("=" * 60)
         return {
             "figure_path": str(figure_path),
@@ -2945,7 +2945,7 @@ def method_to_svg(
             "final_svg_path": None,
         }
 
-    # 步骤二：SAM3 分割（包含Box合并）
+    # Step 2: SAM3 segmentation (includes box merge)
     samed_path, boxlib_path, valid_boxes = segment_with_sam3(
         image_path=str(figure_path),
         output_dir=str(output_dir),
@@ -2959,13 +2959,13 @@ def method_to_svg(
 
     no_icon_mode = len(valid_boxes) == 0
     if no_icon_mode:
-        print("\n警告: 没有检测到有效的图标，切换到纯 SVG 回退模式")
+        print("\nWarning: no valid icons detected, switching to pure SVG fallback mode")
     else:
-        print(f"\n检测到 {len(valid_boxes)} 个图标")
+        print(f"\nDetected {len(valid_boxes)} icons")
 
     if stop_after == 2:
         print("\n" + "=" * 60)
-        print("已在步骤 2 后停止")
+        print("Stopped after step 2")
         print("=" * 60)
         return {
             "figure_path": str(figure_path),
@@ -2977,10 +2977,10 @@ def method_to_svg(
             "final_svg_path": None,
         }
 
-    # 步骤三：裁切 + 去背景
+    # Step 3: crop + background removal
     icon_infos = []
     if no_icon_mode:
-        print("步骤三跳过：当前为无图标回退模式")
+        print("Step 3 skipped: currently in no-icon fallback mode")
     else:
         _ensure_rmbg2_access_ready(rmbg_model_path)
         icon_infos = crop_and_remove_background(
@@ -2992,7 +2992,7 @@ def method_to_svg(
 
     if stop_after == 3:
         print("\n" + "=" * 60)
-        print("已在步骤 3 后停止")
+        print("Stopped after step 3")
         print("=" * 60)
         return {
             "figure_path": str(figure_path),
@@ -3004,7 +3004,7 @@ def method_to_svg(
             "final_svg_path": None,
         }
 
-    # 步骤四：生成 SVG 模板
+    # Step 4: generate SVG template
     template_svg_path = output_dir / "template.svg"
     optimized_template_path = output_dir / "optimized_template.svg"
     final_svg_path = output_dir / "final.svg"
@@ -3022,7 +3022,7 @@ def method_to_svg(
             no_icon_mode=no_icon_mode,
         )
 
-        # 步骤 4.6：LLM 优化 SVG 模板（可配置迭代次数，0 表示跳过）
+        # Step 4.6: LLM optimize SVG template (iterations configurable, 0=skip)
         optimize_svg_with_llm(
             figure_path=str(figure_path),
             samed_path=samed_path,
@@ -3039,7 +3039,7 @@ def method_to_svg(
     except Exception as exc:
         if not no_icon_mode:
             raise
-        print(f"无图标模式下 SVG 重建失败（{exc}），改用内嵌原图的保底 SVG")
+        print(f"SVG rebuild failed in no-icon mode ({exc}), using fallback SVG with embedded original image")
         create_embedded_figure_svg(
             figure_path=str(figure_path),
             output_path=str(final_svg_path),
@@ -3047,7 +3047,7 @@ def method_to_svg(
 
     if stop_after == 4:
         print("\n" + "=" * 60)
-        print("已在步骤 4 后停止")
+        print("Stopped after step 4")
         print("=" * 60)
         return {
             "figure_path": str(figure_path),
@@ -3061,26 +3061,26 @@ def method_to_svg(
 
     svg_template_for_replace = optimized_template_path if optimized_template_path.is_file() else template_svg_path
 
-    # 步骤五：图标替换
+    # Step 5: icon replacement
     if no_icon_mode:
         if svg_template_for_replace.is_file():
             shutil.copyfile(svg_template_for_replace, final_svg_path)
-            print("无图标模式：跳过图标替换，直接输出 SVG")
+            print("No-icon mode: skipping icon replacement, outputting SVG directly")
         else:
-            print("无图标模式缺少模板 SVG，生成保底 final.svg")
+            print("No-icon mode: missing template SVG, generating fallback final.svg")
             create_embedded_figure_svg(
                 figure_path=str(figure_path),
                 output_path=str(final_svg_path),
             )
     else:
-        # 步骤 4.7：坐标系对齐
+        # Step 4.7: Coordinate system alignment
         print("\n" + "-" * 50)
-        print("步骤 4.7：坐标系对齐")
+        print("Step 4.7: Coordinate system alignment")
         print("-" * 50)
 
         figure_img = Image.open(figure_path)
         figure_width, figure_height = figure_img.size
-        print(f"原图尺寸: {figure_width} x {figure_height}")
+        print(f"Original image size: {figure_width} x {figure_height}")
 
         with open(svg_template_for_replace, 'r', encoding='utf-8') as f:
             svg_code = f.read()
@@ -3088,19 +3088,19 @@ def method_to_svg(
         svg_width, svg_height = get_svg_dimensions(svg_code)
 
         if svg_width and svg_height:
-            print(f"SVG 尺寸: {svg_width} x {svg_height}")
+            print(f"SVG size: {svg_width} x {svg_height}")
 
             if abs(svg_width - figure_width) < 1 and abs(svg_height - figure_height) < 1:
-                print("尺寸匹配，使用 1:1 坐标映射")
+                print("Sizes match, using 1:1 coordinate mapping")
                 scale_factors = (1.0, 1.0)
             else:
                 scale_x, scale_y = calculate_scale_factors(
                     figure_width, figure_height, svg_width, svg_height
                 )
                 scale_factors = (scale_x, scale_y)
-                print(f"尺寸不匹配，计算缩放因子: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
+                print(f"Size mismatch, computing scale factors: scale_x={scale_x:.4f}, scale_y={scale_y:.4f}")
         else:
-            print("警告: 无法提取 SVG 尺寸，使用 1:1 坐标映射")
+            print("Warning: cannot extract SVG dimensions, using 1:1 coordinate mapping")
             scale_factors = (1.0, 1.0)
 
         replace_icons_in_svg(
@@ -3112,15 +3112,15 @@ def method_to_svg(
         )
 
     print("\n" + "=" * 60)
-    print("流程完成！")
+    print("Pipeline complete!")
     print("=" * 60)
-    print(f"原始图片: {figure_path}")
-    print(f"标记图片: {samed_path}")
-    print(f"Box信息: {boxlib_path}")
-    print(f"图标数量: {len(icon_infos)}")
-    print(f"SVG模板: {template_svg_path}")
-    print(f"优化后模板: {optimized_template_path}")
-    print(f"最终SVG: {final_svg_path}")
+    print(f"Original image: {figure_path}")
+    print(f"Labeled image: {samed_path}")
+    print(f"Box info: {boxlib_path}")
+    print(f"Icon count: {len(icon_infos)}")
+    print(f"SVG template: {template_svg_path}")
+    print(f"Optimized template: {optimized_template_path}")
+    print(f"Final SVG: {final_svg_path}")
 
     return {
         "figure_path": str(figure_path),
@@ -3156,129 +3156,129 @@ def create_embedded_figure_svg(
     with open(output_path_obj, 'w', encoding='utf-8') as f:
         f.write(svg_code)
 
-    print(f"内嵌 figure.png 的保底 SVG 已保存: {output_path_obj}")
+    print(f"Fallback SVG with embedded figure.png saved: {output_path_obj}")
     return str(output_path_obj)
 
 
 # ============================================================================
-# 命令行入口
+# CLI entry point
 # ============================================================================
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Paper Method 到 SVG 图标替换工具 (Label 模式增强版 + Box合并)"
+        description="Paper Method to SVG icon replacement tool (Label mode enhanced + Box merge)"
     )
 
-    # 输入参数
+    # Input parameters
     input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument("--method_text", help="Paper method 文本内容")
-    input_group.add_argument("--method_file", default="./paper.txt", help="包含 paper method 的文本文件路径")
+    input_group.add_argument("--method_text", help="Paper method text content")
+    input_group.add_argument("--method_file", default="./paper.txt", help="Path to text file containing the paper method")
 
-    # 输出参数
-    parser.add_argument("--output_dir", default="./output", help="输出目录（默认: ./output）")
+    # Output parameters
+    parser.add_argument("--output_dir", default="./output", help="Output directory (default: ./output)")
 
-    # Provider 参数
+    # Provider parameters
     parser.add_argument(
         "--provider",
         choices=["openrouter", "bianxie", "gemini"],
         default="bianxie",
-        help="API 提供商（默认: bianxie）"
+        help="API provider (default: bianxie)"
     )
 
-    # API 参数
+    # API parameters
     parser.add_argument("--api_key", default=None, help="API Key")
-    parser.add_argument("--base_url", default=None, help="API base URL（默认根据 provider 自动设置）")
+    parser.add_argument("--base_url", default=None, help="API base URL (auto-set based on provider by default)")
 
-    # 模型参数
-    parser.add_argument("--image_model", default=None, help="生图模型（默认根据 provider 自动设置）")
+    # Model parameters
+    parser.add_argument("--image_model", default=None, help="Image generation model (auto-set based on provider by default)")
     parser.add_argument(
         "--image_size",
         choices=list(IMAGE_SIZE_CHOICES),
         default=GEMINI_DEFAULT_IMAGE_SIZE,
-        help="生图分辨率（可选: 1K/2K/4K，默认: 4K）",
+        help="Image resolution (options: 1K/2K/4K, default: 4K)",
     )
-    parser.add_argument("--svg_model", default=None, help="SVG生成模型（默认根据 provider 自动设置）")
+    parser.add_argument("--svg_model", default=None, help="SVG generation model (auto-set based on provider by default)")
 
-    # Step 1 参考图片参数
+    # Step 1 reference image parameters
     parser.add_argument(
         "--use_reference_image",
         action="store_true",
-        help="步骤一使用参考图片风格（需要同时提供 --reference_image_path）"
+        help="Step 1: use reference image style (requires --reference_image_path)",
     )
-    parser.add_argument("--reference_image_path", default=None, help="参考图片路径（可选）")
+    parser.add_argument("--reference_image_path", default=None, help="Reference image path (optional)")
 
-    # SAM3 参数
-    parser.add_argument("--sam_prompt", default="icon,robot,animal,person", help="SAM3 文本提示，支持逗号分隔多个prompt（如 'icon,diagram,arrow'，默认: icon）")
-    parser.add_argument("--min_score", type=float, default=0.0, help="SAM3 最低置信度阈值（默认: 0.0）")
+    # SAM3 parameters
+    parser.add_argument("--sam_prompt", default="icon,robot,animal,person", help="SAM3 text prompts, supports comma-separated multiple prompts (e.g. 'icon,diagram,arrow', default: icon)")
+    parser.add_argument("--min_score", type=float, default=0.0, help="SAM3 minimum confidence threshold (default: 0.0)")
     parser.add_argument(
         "--sam_backend",
         choices=["local", "fal", "roboflow", "api"],
         default="local",
-        help="SAM3 后端：local(本地部署)/fal(fal.ai)/roboflow(Roboflow)/api(旧别名=fal)",
+        help="SAM3 backend: local(local deploy)/fal(fal.ai)/roboflow(Roboflow)/api(legacy alias=fal)",
     )
-    parser.add_argument("--sam_api_key", default=None, help="SAM3 API Key（默认使用 FAL_KEY）")
+    parser.add_argument("--sam_api_key", default=None, help="SAM3 API key (defaults to FAL_KEY)")
     parser.add_argument(
         "--sam_max_masks",
         type=int,
         default=32,
-        help="SAM3 API 最大 masks 数（仅 api 后端，默认: 32）",
+        help="SAM3 API max masks count (api backend only, default: 32)",
     )
 
-    # RMBG 参数
-    parser.add_argument("--rmbg_model_path", default=None, help="RMBG 模型本地路径（可选）")
+    # RMBG parameters
+    parser.add_argument("--rmbg_model_path", default=None, help="RMBG model local path (optional)")
 
-    # 流程控制参数
+    # Pipeline control parameters
     parser.add_argument(
         "--stop_after",
         type=int,
         choices=[1, 2, 3, 4, 5],
         default=5,
-        help="执行到指定步骤后停止（1-5，默认: 5 完整流程）"
+        help="Stop after specified step (1-5, default: 5 for full pipeline)"
     )
 
-    # 占位符模式参数
+    # Placeholder mode parameters
     parser.add_argument(
         "--placeholder_mode",
         choices=["none", "box", "label"],
         default="label",
-        help="占位符模式：none(无样式)/box(传坐标)/label(序号匹配)（默认: label）"
+        help="Placeholder mode: none(no style)/box(pass coords)/label(label matching) (default: label)"
     )
 
-    # 步骤 4.6 优化迭代次数参数
+    # Step 4.6 optimization iteration count parameter
     parser.add_argument(
         "--optimize_iterations",
         type=int,
         default=0,
-        help="步骤 4.6 LLM 优化迭代次数（0 表示跳过优化，默认: 0）"
+        help="Step 4.6 LLM optimization iterations (0 = skip, default: 0)"
     )
 
-    # Box 合并阈值参数
+    # Box merge threshold parameter
     parser.add_argument(
         "--merge_threshold",
         type=float,
         default=0.001,
-        help="Box合并阈值，重叠比例超过此值则合并（0表示不合并，默认: 0.9）"
+        help="Box merge threshold, boxes with overlap above this value are merged (0=no merge, default: 0.9)"
     )
 
     args = parser.parse_args()
 
     if args.use_reference_image and not args.reference_image_path:
-        parser.error("--use_reference_image 需要 --reference_image_path")
+        parser.error("--use_reference_image requires --reference_image_path")
     if args.reference_image_path and not Path(args.reference_image_path).is_file():
-        parser.error(f"参考图片不存在: {args.reference_image_path}")
+        parser.error(f"Reference image does not exist: {args.reference_image_path}")
 
     USE_REFERENCE_IMAGE = bool(args.use_reference_image)
     REFERENCE_IMAGE_PATH = args.reference_image_path
     if REFERENCE_IMAGE_PATH:
         USE_REFERENCE_IMAGE = True
 
-    # 获取 method 文本：优先使用 --method_text
+    # Get method text: prefer --method_text
     method_text = args.method_text
     if method_text is None:
         with open(args.method_file, 'r', encoding='utf-8') as f:
             method_text = f.read()
 
-    # 运行完整流程
+    # Run full pipeline
     result = method_to_svg(
         method_text=method_text,
         output_dir=args.output_dir,
